@@ -58,6 +58,9 @@ class Variable(object):
     def __hash__(self):
         return hash('Variable') ^ hash(self._symbol)
 
+    def contain(self):
+        print self._symbol
+
 
 class _OperatorTerm(object):
     """Composite operator term."""
@@ -84,6 +87,9 @@ class _OperatorTerm(object):
 
     def __ne__(self, other):
         return not self == other
+
+    def contain(self):
+        return self._terms
 
 
 class And(_OperatorTerm):
