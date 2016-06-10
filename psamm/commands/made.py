@@ -19,6 +19,7 @@ from __future__ import unicode_literals
 
 import time
 import logging
+from psamm.expression import boolean
 
 from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
@@ -40,4 +41,19 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
     def run(self):
         """Run MADE implementation."""
-        print('Hello World')
+        x = self.parse_dict()
+        for key, value in x.iteritems():
+            exp_gene_string(value)
+            print(key, value)
+
+    def parse_dict(self):
+        gene_dict = {}
+        for i in self._model.parse_reactions():
+            gene_dict[i.id] = i.genes
+        return(gene_dict)
+
+def exp_gene_string(G):
+    e = boolean.Expression(G)
+    #if term in e._root not boolean.Or:
+    print e._root
+    print e._root.contain()
