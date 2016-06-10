@@ -61,6 +61,9 @@ class Variable(object):
     def contain(self):
         print self._symbol
 
+    def cont_type(self):
+        return Variable
+
 
 class _OperatorTerm(object):
     """Composite operator term."""
@@ -90,6 +93,9 @@ class _OperatorTerm(object):
 
     def contain(self):
         return self._terms
+
+    def cont_type(self):
+        return self
 
 
 class And(_OperatorTerm):
@@ -149,6 +155,9 @@ class Expression(object):
     def variables(self):
         """Immutable set of variables in the expression."""
         return self._variables
+
+    def base_tree(self):
+        return self._root
 
     def has_value(self):
         """Return True if the expression has no variables."""

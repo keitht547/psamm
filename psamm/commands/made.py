@@ -43,8 +43,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         """Run MADE implementation."""
         x = self.parse_dict()
         for key, value in x.iteritems():
-            exp_gene_string(value)
-            print(key, value)
+            get_root(value)
 
     def parse_dict(self):
         gene_dict = {}
@@ -55,5 +54,31 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 def exp_gene_string(G):
     e = boolean.Expression(G)
     #if term in e._root not boolean.Or:
-    print e._root
-    print e._root.contain()
+    #print e._root
+    #print e.base_tree()
+    if type(e.base_tree()) is not boolean.Variable:
+        for i in e.base_tree():
+            if type(i) is not boolean.Variable:
+                for j in i.contain():
+                    print(j)
+            else:
+                print(i)
+    else:
+        print e.base_tree()
+
+def get_root(G):
+    e = boolean.Expression(G)
+    #print(e.base_tree())
+    if type(e.base_tree()) is boolean.Or:
+        and_list = []
+        for i in e.base_tree().contain():
+            and_list.append(i)
+        y1 = None
+        for j in and_list:
+            print('y1 <= {}'.format(j))
+            if y1 is None:
+                y1 = str(j)+' - {}'.format(len(and_list)-1)
+            else:
+                y1 = '{} + '.format(str(j))+y1
+        y1 = 'y1 >= {}'.format(y1)
+        print(y1)
