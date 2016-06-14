@@ -97,6 +97,10 @@ class MaybeRelative(object):
         """The reference used for converting to absolute value."""
         return self._reference
 
+    @property
+    def value(self):
+        return self._value
+
     @reference.setter
     def reference(self, value):
         self._reference = value
