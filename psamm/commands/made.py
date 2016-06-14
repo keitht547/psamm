@@ -23,6 +23,7 @@ from psamm.expression import boolean
 
 from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
+from ..util import MaybeRelative
 
 logger = logging.getLogger(__name__)
 
@@ -36,21 +37,34 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             '--loop-removal', help='Select type of loop removal constraints',
             choices=['none', 'tfba', 'l1min'], default='none')
         parser.add_argument('reaction', help='Reaction to maximize', nargs='?')
-
+        parser.add_argument(
+            '--flux-threshold',
+            help='Enter maximum objective flux as a decimal or percent', type=MaybeRelative, default = MaybeRelative('70%'), nargs='?')
         super(MadeFluxBalance, cls).init_parser(parser)
 
     def run(self):
         """Run MADE implementation."""
-        x = self.parse_dict()
-        for key, value in x.iteritems():
-            exp_gene_string(value)
-            print(key, value)
+
+        print minimum_flux(self)
 
     def parse_dict(self):
         gene_dict = {}
         for i in self._model.parse_reactions():
             gene_dict[i.id] = i.genes
         return(gene_dict)
+
+
+def minimum_flux(self):
+    '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
+    q = self._args.flux_threshold
+    solver = self._get_solver(integer=True)
+    mm_model = self._mm
+    nat_model = self._model
+    obj_func = nat_model.get_biomass_reaction()
+    p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
+    p.maximize(obj_func)
+    flux = p.get_flux(obj_func)
+    return q.value*flux
 
 def exp_gene_string(G):
     e = boolean.Expression(G)
