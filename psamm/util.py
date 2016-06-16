@@ -99,6 +99,7 @@ class MaybeRelative(object):
 
     @property
     def value(self):
+        """Returns the value associated with the MaybeRelative object."""
         return self._value
 
     @reference.setter
