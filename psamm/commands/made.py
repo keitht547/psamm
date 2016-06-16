@@ -25,6 +25,7 @@ from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,19 +40,18 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         parser.add_argument('reaction', help='Reaction to maximize', nargs='?')
         parser.add_argument(
             '--flux-threshold',
-            help='Enter maximum objective flux as a decimal or percent', type=MaybeRelative, default = MaybeRelative('70%'), nargs='?')
+            help='Enter maximum objective flux as a decimal or percent',
+            type=MaybeRelative, default = MaybeRelative('100%'), nargs='?')
         super(MadeFluxBalance, cls).init_parser(parser)
 
     def run(self):
         """Run MADE implementation."""
-<<<<<<< HEAD
-        x = self.parse_dict()
-        for key, value in x.iteritems():
-            get_root(value)
-=======
+        exp_and = boolean.Expression('A and B and C and D')
+        exp_or = boolean.Expression('E or F or G or H')
+        print bool_ineqs(exp_or)
 
-        print minimum_flux(self)
->>>>>>> threshold-input
+
+
 
     def parse_dict(self):
         gene_dict = {}
@@ -90,7 +90,7 @@ def exp_gene_string(G):
 def get_root(G):
     e = boolean.Expression(G)
     #print(e.base_tree())
-    if type(e.base_tree()) is boolean.Or:
+    if type(e.base_tree()) is boolean.And:
         and_list = []
         for i in e.base_tree().contain():
             and_list.append(i)
@@ -103,3 +103,35 @@ def get_root(G):
                 y1 = '{} + '.format(str(j))+y1
         y1 = 'y1 >= {}'.format(y1)
         print(y1)
+
+
+def bool_ineqs(exp):
+    '''Input homogenous boolean.Expression type.
+    Returns a list of corresponding unicode inequalities'''
+
+    N = len(exp.variables) # Counts the number of varables
+    if isinstance(exp.base_tree(), boolean.And):
+        label = 'and'
+        relation1 = ' >= '
+        relation2 = ' <= '
+        modify = ' - '+unicode(N-1) # one less than the number of ands or ors
+
+    elif isinstance(exp.base_tree(), boolean.Or):
+        label = 'or'
+        relation1 = ' <= '
+        relation2 = ' >= '
+        modify = ''
+    elif isinstance(exp.base_tree(), boolean.Variable):
+        raise ValueError('Argument contains only variables, no operators')
+
+    x = [] # A list of the unicode characters of the variables in the expression
+    for i in exp.base_tree().contain():
+        x.append(i.symbol)
+
+    ineq = [] #The list of inequalities to be returned
+    ineq1 = ' + '.join(x) # The first inequality
+    ineq.append('Y'+relation1+ineq1+modify)
+    for j in range(N):
+        ineq.append('Y'+relation2+x[j]) # Subsequent inequalities
+
+    return ineq
