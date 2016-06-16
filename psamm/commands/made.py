@@ -19,6 +19,7 @@ from __future__ import unicode_literals
 
 import time
 import logging
+from itertools import count
 from psamm.expression import boolean
 
 from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
-    """Run flux balance analysis on the model."""
+    """Run MADE flux balance analysis on the model."""
 
     @classmethod
     def init_parser(cls, parser):
@@ -50,15 +51,21 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         exp_or = boolean.Expression('E or F or G or H')
         print bool_ineqs(exp_or)
 
-
-
+#Reaction string
+        x = self.parse_dict()
+        var_gen = ('y{}'.format(i) for i in count(1))
+        for key, value in x.iteritems():
+            e = boolean.Expression(value)
+            exp_gene_string(e.base_tree(), var_gen)
+            print (key,value)
+        # for key, value in x.iteritems():
+        #     get_root(value)
 
     def parse_dict(self):
         gene_dict = {}
         for i in self._model.parse_reactions():
             gene_dict[i.id] = i.genes
         return(gene_dict)
-
 
 def minimum_flux(self):
     '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
@@ -72,20 +79,6 @@ def minimum_flux(self):
     flux = p.get_flux(obj_func)
     return q.value*flux
 
-def exp_gene_string(G):
-    e = boolean.Expression(G)
-    #if term in e._root not boolean.Or:
-    #print e._root
-    #print e.base_tree()
-    if type(e.base_tree()) is not boolean.Variable:
-        for i in e.base_tree():
-            if type(i) is not boolean.Variable:
-                for j in i.contain():
-                    print(j)
-            else:
-                print(i)
-    else:
-        print e.base_tree()
 
 def get_root(G):
     e = boolean.Expression(G)
@@ -135,3 +128,54 @@ def bool_ineqs(exp):
         ineq.append('Y'+relation2+x[j]) # Subsequent inequalities
 
     return ineq
+
+def exp_gene_string(A, var_gen):
+    if type(A) is not boolean.Variable:
+        print type(A)
+        children = []
+        variable_names = []
+        for i in A:
+            children.append(i)
+            variable_names.append(next(var_gen))
+            exp_gene_string(i, var_gen)
+            if i in variable_names:
+                 print variable_names(i)
+            print(children)
+            print(variable_names)
+
+    else:
+        print A
+
+
+    #
+    # roots = []
+    # containers = []
+    # roots.append(e._root)
+    # containers.append(e._root.contain())
+
+    # print roots
+    # # for index, item in enumerate(roots):
+    # #     print index+1, item
+    # print containers
+
+    #if term in e._root not boolean.Or:
+    #print e._root
+    #print e.base_tree()
+    # if type(e.base_tree()) is not boolean.Variable:
+    #     for i in e.base_tree():
+    #         if type(i) is not boolean.Variable:
+    #             for j in i.contain():
+    #                 if type(j) is not boolean.Variable:
+    #                     for k in j.contain():
+    #                         print(k)
+    #                 print(j)
+    #         else:
+    # #             print(i)
+    #         if type(i) is boolean.Or:
+    #             print "or"
+    #         elif type(i) is boolean.And:
+    #             print "and"
+    #         else:
+    #             print "variable"
+    # else:
+    #     print e.base_tree()
