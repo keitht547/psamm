@@ -47,17 +47,22 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
     def run(self):
         """Run MADE implementation."""
-        exp_and = boolean.Expression('A and B and C and D')
-        exp_or = boolean.Expression('E or F or G or H')
-        print bool_ineqs(exp_or)
+        # exp_and = boolean.Expression('A and B and C and D')
+        # exp_or = boolean.Expression('E or F or G or H')
+        # print bool_ineqs(exp_or)
 
 #Reaction string
         x = self.parse_dict()
         var_gen = ('y{}'.format(i) for i in count(1))
         for key, value in x.iteritems():
             e = boolean.Expression(value)
+            #var_names = {}
+
             exp_gene_string(e.base_tree(), var_gen)
+            #print 'var_names: ',var_names
             print (key,value)
+            print ' '
+
         # for key, value in x.iteritems():
         #     get_root(value)
 
@@ -101,50 +106,67 @@ def get_root(G):
 def bool_ineqs(exp):
     '''Input homogenous boolean.Expression type.
     Returns a list of corresponding unicode inequalities'''
-
-    N = len(exp.variables) # Counts the number of varables
-    if isinstance(exp.base_tree(), boolean.And):
+    print exp
+    N = len(exp[1]) # Length of the chilren list
+    if isinstance(exp[0], boolean.And):
         label = 'and'
         relation1 = ' >= '
         relation2 = ' <= '
         modify = ' - '+unicode(N-1) # one less than the number of ands or ors
 
-    elif isinstance(exp.base_tree(), boolean.Or):
+    elif isinstance(exp[0], boolean.Or):
         label = 'or'
         relation1 = ' <= '
         relation2 = ' >= '
         modify = ''
-    elif isinstance(exp.base_tree(), boolean.Variable):
+    elif isinstance(exp[0], boolean.Variable):
         raise ValueError('Argument contains only variables, no operators')
 
-    x = [] # A list of the unicode characters of the variables in the expression
-    for i in exp.base_tree().contain():
-        x.append(i.symbol)
+    x = exp[2] # A list of the unicode characters of the variables in the expression
+    # for i in exp.base_tree().contain():
+    #     x.append(i.symbol)
 
     ineq = [] #The list of inequalities to be returned
     ineq1 = ' + '.join(x) # The first inequality
-    ineq.append('Y'+relation1+ineq1+modify)
+    if exp[0] in exp[3].keys():
+        Y = exp[3][exp[0]]
+    else:
+        Y = Y0
+    ineq.append(Y+relation1+ineq1+modify)
     for j in range(N):
         ineq.append('Y'+relation2+x[j]) # Subsequent inequalities
 
     return ineq
 
 def exp_gene_string(A, var_gen):
+    var_names2 = {}
     if type(A) is not boolean.Variable:
         print type(A)
         children = []
         variable_names = []
-        for i in A:
+        for N,i in enumerate(A):
             children.append(i)
-            variable_names.append(next(var_gen))
-            exp_gene_string(i, var_gen)
-            if i in variable_names:
-                 print variable_names(i)
-            print(children)
-            print(variable_names)
+            q = next(var_gen)
+            variable_names.append(q)
+            var_names2[i] = q
+            var_names2.update(exp_gene_string(i, var_gen))
+            indent = (N+1) * '\t'
+        if i in variable_names:
+             print '{}Var Name: '.format(indent),variable_names(i)
+        print '{}Loop Name: '.format(indent), A
+        print '{}children: '.format(indent), children
+        print '{}Variable Names: '.format(indent), variable_names
+
+        Expression = [A.cont_type(), A.contain(), variable_names, var_names2]
+        print bool_ineqs(Expression)
+        # print A.contain()
+        # print A.cont_type()
+        # print A.ysymbol()
+        print var_names2
 
     else:
-        print A
+        print 'vvarvar', A
+    return var_names2
 
 
     #

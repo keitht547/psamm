@@ -77,7 +77,7 @@ class _OperatorTerm(object):
             else:
                 raise ValueError('Invalid term: {!r}'.format(arg))
         self._terms = FrozenOrderedSet(terms)
-
+        self._ysymbol = ''
     def __iter__(self):
         return iter(self._terms)
 
@@ -96,6 +96,9 @@ class _OperatorTerm(object):
 
     def cont_type(self):
         return self
+
+    def ysymbol(self):
+        return self._ysymbol
 
 
 class And(_OperatorTerm):
