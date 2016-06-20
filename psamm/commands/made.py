@@ -47,30 +47,24 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
     def run(self):
         """Run MADE implementation."""
-        # exp_and = boolean.Expression('A and B and C and D')
-        # exp_or = boolean.Expression('E or F or G or H')
-        # print bool_ineqs(exp_or)
-
 #Reaction string
         x = self.parse_dict()
+        var_dict = {}
         var_gen = ('y{}'.format(i) for i in count(1))
         for key, value in x.iteritems():
             e = boolean.Expression(value)
-            #var_names = {}
-
-            exp_gene_string(e.base_tree(), var_gen)
-            #print 'var_names: ',var_names
-            print (key,value)
+            exp_gene_string(e.base_tree(), var_gen, var_dict, key)
+            print (key,value) #Prints reaction ID and gene string
+            print ' '
             print ' '
 
-        # for key, value in x.iteritems():
-        #     get_root(value)
 
     def parse_dict(self):
         gene_dict = {}
         for i in self._model.parse_reactions():
             gene_dict[i.id] = i.genes
         return(gene_dict)
+
 
 def minimum_flux(self):
     '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
@@ -85,28 +79,10 @@ def minimum_flux(self):
     return q.value*flux
 
 
-def get_root(G):
-    e = boolean.Expression(G)
-    #print(e.base_tree())
-    if type(e.base_tree()) is boolean.And:
-        and_list = []
-        for i in e.base_tree().contain():
-            and_list.append(i)
-        y1 = None
-        for j in and_list:
-            print('y1 <= {}'.format(j))
-            if y1 is None:
-                y1 = str(j)+' - {}'.format(len(and_list)-1)
-            else:
-                y1 = '{} + '.format(str(j))+y1
-        y1 = 'y1 >= {}'.format(y1)
-        print(y1)
-
-
 def bool_ineqs(exp):
     '''Input homogenous boolean.Expression type.
     Returns a list of corresponding unicode inequalities'''
-    print exp
+    #print exp
     N = len(exp[1]) # Length of the chilren list
     if isinstance(exp[0], boolean.And):
         label = 'and'
@@ -123,81 +99,43 @@ def bool_ineqs(exp):
         raise ValueError('Argument contains only variables, no operators')
 
     x = exp[2] # A list of the unicode characters of the variables in the expression
-    # for i in exp.base_tree().contain():
-    #     x.append(i.symbol)
-
     ineq = [] #The list of inequalities to be returned
     ineq1 = ' + '.join(x) # The first inequality
     if exp[0] in exp[3].keys():
         Y = exp[3][exp[0]]
     else:
-        Y = Y0
+        Y = 'Y'
     ineq.append(Y+relation1+ineq1+modify)
     for j in range(N):
-        ineq.append('Y'+relation2+x[j]) # Subsequent inequalities
-
+        if exp[4] is not None:
+            ineq.append(exp[4]+relation2+x[j])
+        else:
+             ineq.append(exp[4]+relation2+x[j])# Subsequent inequalities
     return ineq
 
-def exp_gene_string(A, var_gen):
-    var_names2 = {}
+
+
+def exp_gene_string(A, var_gen, var_dict, name):
+    var_dict[A] = name
+
     if type(A) is not boolean.Variable:
-        print type(A)
+        exp_obj_name =var_dict.get(A)
         children = []
         variable_names = []
         for N,i in enumerate(A):
             children.append(i)
             q = next(var_gen)
             variable_names.append(q)
-            var_names2[i] = q
-            var_names2.update(exp_gene_string(i, var_gen))
+            exp_gene_string(i, var_gen, var_dict, q)
             indent = (N+1) * '\t'
         if i in variable_names:
              print '{}Var Name: '.format(indent),variable_names(i)
-        print '{}Loop Name: '.format(indent), A
-        print '{}children: '.format(indent), children
+
+        print '{}Container Expression: '.format(indent), A
+        print '{}Arguments: '.format(indent), children
         print '{}Variable Names: '.format(indent), variable_names
 
-        Expression = [A.cont_type(), A.contain(), variable_names, var_names2]
-        print bool_ineqs(Expression)
-        # print A.contain()
-        # print A.cont_type()
-        # print A.ysymbol()
-        print var_names2
-
-    else:
-        print 'vvarvar', A
-    return var_names2
-
-
-    #
-    # roots = []
-    # containers = []
-    # roots.append(e._root)
-    # containers.append(e._root.contain())
-
-    # print roots
-    # # for index, item in enumerate(roots):
-    # #     print index+1, item
-    # print containers
-
-    #if term in e._root not boolean.Or:
-    #print e._root
-    #print e.base_tree()
-    # if type(e.base_tree()) is not boolean.Variable:
-    #     for i in e.base_tree():
-    #         if type(i) is not boolean.Variable:
-    #             for j in i.contain():
-    #                 if type(j) is not boolean.Variable:
-    #                     for k in j.contain():
-    #                         print(k)
-    #                 print(j)
-    #         else:
-    # #             print(i)
-    #         if type(i) is boolean.Or:
-    #             print "or"
-    #         elif type(i) is boolean.And:
-    #             print "and"
-    #         else:
-    #             print "variable"
-    # else:
-    #     print e.base_tree()
+        if exp_obj_name is None:
+            exp_obj_name = name
+        Expression = [A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name]
+        print bool_ineqs(Expression) #Prints the inequalities. List form
