@@ -50,13 +50,18 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 #Reaction string
         x = self.parse_dict()
         var_dict = {}
+        linear_ineq_list = []
         var_gen = ('y{}'.format(i) for i in count(1))
         for key, value in x.iteritems():
             e = boolean.Expression(value)
-            exp_gene_string(e.base_tree(), var_gen, var_dict, key)
+            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list)
             print (key,value) #Prints reaction ID and gene string
             print ' '
             print ' '
+        master_ineq_list = combine_list(linear_ineq_list) #Master List of inequalities
+        print master_ineq_list
+    
+
 
 
     def parse_dict(self):
@@ -115,7 +120,7 @@ def bool_ineqs(exp):
 
 
 
-def exp_gene_string(A, var_gen, var_dict, name):
+def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list):
     var_dict[A] = name
 
     if type(A) is not boolean.Variable:
@@ -126,7 +131,7 @@ def exp_gene_string(A, var_gen, var_dict, name):
             children.append(i)
             q = next(var_gen)
             variable_names.append(q)
-            exp_gene_string(i, var_gen, var_dict, q)
+            exp_gene_string(i, var_gen, var_dict, q, linear_ineq_list)
             indent = (N+1) * '\t'
         if i in variable_names:
              print '{}Var Name: '.format(indent),variable_names(i)
@@ -138,4 +143,14 @@ def exp_gene_string(A, var_gen, var_dict, name):
         if exp_obj_name is None:
             exp_obj_name = name
         Expression = [A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name]
-        print bool_ineqs(Expression) #Prints the inequalities. List form
+        x = bool_ineqs(Expression) #Prints the inequalities. List form
+        print x
+        linear_ineq_list.append(x)
+
+
+def combine_list(L):
+    results = []
+    for equations in L:
+        for values in equations:
+            results.append(values)
+    return results
