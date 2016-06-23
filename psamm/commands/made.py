@@ -17,6 +17,7 @@
 
 from __future__ import unicode_literals
 
+import argparse
 import time
 import logging
 from itertools import count
@@ -25,6 +26,8 @@ from psamm.expression import boolean
 from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
+from psamm.datasource import native
+
 
 
 logger = logging.getLogger(__name__)
@@ -60,7 +63,11 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             print ' '
         master_ineq_list = combine_list(linear_ineq_list) #Master List of inequalities
         print master_ineq_list
-    
+        # problem = self.flux_example()
+        # for i in master_ineq_list:
+        #      linear_fxn(problem,i)
+        # # flux_example(self)
+        # self.flux_example()
 
 
 
@@ -71,51 +78,83 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         return(gene_dict)
 
 
-def minimum_flux(self):
-    '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
-    q = self._args.flux_threshold
-    solver = self._get_solver(integer=True)
-    mm_model = self._mm
-    nat_model = self._model
-    obj_func = nat_model.get_biomass_reaction()
-    p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
-    p.maximize(obj_func)
-    flux = p.get_flux(obj_func)
-    return q.value*flux
+    def minimum_flux(self):
+        '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
+        q = self._args.flux_threshold
+        solver = self._get_solver(integer=True)
+        mm_model = self._mm
+        nat_model = self._model
+        obj_func = nat_model.get_biomass_reaction()
+        p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
+        p.maximize(obj_func)
+        flux = p.get_flux(obj_func)
+        return q.value*flux
+
+    def flux_example(self):
+
+        model_path = self._model
+        nat_model = self._model
+        mm_model = nat_model.create_metabolic_model()
+        solver = self._get_solver(integer=True)
+        mm = mm_model.copy()
+        # mm.limits['rxn_6'].upper = 1000
+        p = fluxanalysis.FluxBalanceProblem(mm, solver)
+        return p
+        # p.maximize('rxn_6')
+        # obj_var = p.get_flux_var('rxn_6')
+        # p.prob.add_linear_constraints(obj_var == p.get_flux('rxn_6'))
+        # obj_var2 = p.get_flux_var('rxn_2')
+        # obj_var3 = p.get_flux_var('rxn_3')
+        # linear_fxn(p,obj_var2 == 50)
+        # # p.prob.add_linear_constraints(obj_var2 == obj_var3)
+        # #
+        # p.minimize_l1()
+        # Biomass = p.get_flux('rxn_6')
+        # print(p.get_flux('rxn_6'))
+        # print(p.get_flux('rxn_3'))
+        # q = self._args.flux_threshold
 
 
-def bool_ineqs(exp):
+    # p.prob.add_linear_constraints('{}'.format(i))
+    # mm.add_linear_constraints(rxn_2 == rxn_3)
+def linear_fxn(LPprob, LinC):
+    # LPprob = p
+    # LinC = linear constraint
+    LPprob.prob.add_linear_constraints(LinC)
+    
+
+def bool_ineqs(ctype, containing, names, dict_var, obj_name):
     '''Input homogenous boolean.Expression type.
     Returns a list of corresponding unicode inequalities'''
     #print exp
-    N = len(exp[1]) # Length of the chilren list
-    if isinstance(exp[0], boolean.And):
+    N = len(containing) # Length of the chilren list
+    if isinstance(ctype, boolean.And):
         label = 'and'
         relation1 = ' >= '
         relation2 = ' <= '
         modify = ' - '+unicode(N-1) # one less than the number of ands or ors
 
-    elif isinstance(exp[0], boolean.Or):
+    elif isinstance(ctype, boolean.Or):
         label = 'or'
         relation1 = ' <= '
         relation2 = ' >= '
         modify = ''
-    elif isinstance(exp[0], boolean.Variable):
+    elif isinstance(ctype, boolean.Variable):
         raise ValueError('Argument contains only variables, no operators')
 
-    x = exp[2] # A list of the unicode characters of the variables in the expression
+    x = names # A list of the unicode characters of the variables in the expression
     ineq = [] #The list of inequalities to be returned
     ineq1 = ' + '.join(x) # The first inequality
-    if exp[0] in exp[3].keys():
-        Y = exp[3][exp[0]]
+    if ctype in dict_var.keys():
+        Y = dict_var[ctype]
     else:
         Y = 'Y'
     ineq.append(Y+relation1+ineq1+modify)
     for j in range(N):
-        if exp[4] is not None:
-            ineq.append(exp[4]+relation2+x[j])
+        if obj_name is not None:
+            ineq.append(obj_name+relation2+x[j])
         else:
-             ineq.append(exp[4]+relation2+x[j])# Subsequent inequalities
+             ineq.append(obj_name+relation2+x[j])# Subsequent inequalities
     return ineq
 
 
@@ -143,7 +182,7 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list):
         if exp_obj_name is None:
             exp_obj_name = name
         Expression = [A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name]
-        x = bool_ineqs(Expression) #Prints the inequalities. List form
+        x = bool_ineqs(A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name) #Prints the inequalities. List form
         print x
         linear_ineq_list.append(x)
 
