@@ -266,6 +266,10 @@ class FluxBalanceProblem(object):
         """Get LP variable representing the reaction flux."""
         return self._prob.var(('v', reaction))
 
+    def get_ineq_var(self, reaction):
+        """Get LP variable representing the inequality."""
+        return self._prob.var(('i', reaction))
+
     def flux_expr(self, reaction):
         """Get LP expression representing the reaction flux."""
         if isinstance(reaction, dict):

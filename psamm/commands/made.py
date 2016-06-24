@@ -26,7 +26,6 @@ from psamm.expression import boolean
 from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
-from psamm.datasource import native
 
 
 
@@ -55,19 +54,15 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         var_dict = {}
         linear_ineq_list = []
         var_gen = ('y{}'.format(i) for i in count(1))
+        problem = self.flux_setup()
         for key, value in x.iteritems():
             e = boolean.Expression(value)
-            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list)
+            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
             print (key,value) #Prints reaction ID and gene string
             print ' '
-            print ' '
-        master_ineq_list = combine_list(linear_ineq_list) #Master List of inequalities
-        print master_ineq_list
-        # problem = self.flux_example()
-        # for i in master_ineq_list:
-        #      linear_fxn(problem,i)
-        # # flux_example(self)
-        # self.flux_example()
+            # print ' '
+        # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
+        # print master_ineq_list
 
 
 
@@ -90,43 +85,55 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         flux = p.get_flux(obj_func)
         return q.value*flux
 
-    def flux_example(self):
 
+    def flux_setup(self):
+        '''Creates a flux balance problem'''
         model_path = self._model
         nat_model = self._model
         mm_model = nat_model.create_metabolic_model()
         solver = self._get_solver(integer=True)
         mm = mm_model.copy()
-        # mm.limits['rxn_6'].upper = 1000
         p = fluxanalysis.FluxBalanceProblem(mm, solver)
         return p
-        # p.maximize('rxn_6')
-        # obj_var = p.get_flux_var('rxn_6')
-        # p.prob.add_linear_constraints(obj_var == p.get_flux('rxn_6'))
-        # obj_var2 = p.get_flux_var('rxn_2')
-        # obj_var3 = p.get_flux_var('rxn_3')
-        # linear_fxn(p,obj_var2 == 50)
-        # # p.prob.add_linear_constraints(obj_var2 == obj_var3)
-        # #
-        # p.minimize_l1()
-        # Biomass = p.get_flux('rxn_6')
-        # print(p.get_flux('rxn_6'))
-        # print(p.get_flux('rxn_3'))
-        # q = self._args.flux_threshold
 
 
-    # p.prob.add_linear_constraints('{}'.format(i))
-    # mm.add_linear_constraints(rxn_2 == rxn_3)
-def linear_fxn(LPprob, LinC):
-    # LPprob = p
-    # LinC = linear constraint
-    LPprob.prob.add_linear_constraints(LinC)
-    
+def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
+    '''Opens and identifies all containers with the variables and arguments
+        as well outputs the associated inequalities'''
+    var_dict[A] = name
+    problem.prob.define(("i", name))
+    if type(A) is not boolean.Variable:
+        exp_obj_name =var_dict.get(A)
+        children = []
+        variable_names = []
+        for N,i in enumerate(A):
+            children.append(i)
+            q = next(var_gen)
+            variable_names.append(q)
+            exp_gene_string(i, var_gen, var_dict, q, linear_ineq_list, problem)
+            indent = (N+1) * '\t'
+        for j in variable_names:
+            problem.prob.define(("i",j))
+        # for i in problem.prob._variables:
+        #     print(i)
 
-def bool_ineqs(ctype, containing, names, dict_var, obj_name):
+        if i in variable_names:
+             print '{}Var Name: '.format(indent),variable_names(i)
+        print '{}Container Expression: '.format(indent), A
+        print '{}Arguments: '.format(indent), children
+        print '{}Variable Names: '.format(indent), variable_names
+
+        if exp_obj_name is None:
+            exp_obj_name = name
+        x = bool_ineqs(A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name, problem) #Prints the inequalities in list form
+        linear_ineq_list.append(x)
+
+
+
+def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
     '''Input homogenous boolean.Expression type.
     Returns a list of corresponding unicode inequalities'''
-    #print exp
+
     N = len(containing) # Length of the chilren list
     if isinstance(ctype, boolean.And):
         label = 'and'
@@ -149,47 +156,63 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name):
         Y = dict_var[ctype]
     else:
         Y = 'Y'
+
     ineq.append(Y+relation1+ineq1+modify)
     for j in range(N):
         if obj_name is not None:
             ineq.append(obj_name+relation2+x[j])
         else:
              ineq.append(obj_name+relation2+x[j])# Subsequent inequalities
-    return ineq
+    # return ineq
 
 
+    '''The following was appended on 6/24/16'''
+    yvar = problem.get_ineq_var(Y)
+    rightsidelist = []
+    for i in names:
+        xvar = problem.get_ineq_var(i)
+        rightsidelist.append(xvar)
+    # print yvar
+    # print rightsidelist
 
-def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list):
-    var_dict[A] = name
+    if label == 'or':
+        M = None
+        for k in rightsidelist:
+            L = yvar >= k
+            linear_fxn(problem, L)
+            print L
+            if M is None:
+                M = k
+            else:
+                M = k+M
+        Q = yvar <= M
+        linear_fxn(problem, Q)
+        print Q
+    if label == 'and':
+        S = None
+        for k in rightsidelist:
+            R = yvar <= k
+            linear_fxn(problem, R)
+            print R
+            if S is None:
+                S = k
+            else:
+                S = k + S
+        T = yvar >= S - (N-1)
+        linear_fxn(problem, T)
+        print T
 
-    if type(A) is not boolean.Variable:
-        exp_obj_name =var_dict.get(A)
-        children = []
-        variable_names = []
-        for N,i in enumerate(A):
-            children.append(i)
-            q = next(var_gen)
-            variable_names.append(q)
-            exp_gene_string(i, var_gen, var_dict, q, linear_ineq_list)
-            indent = (N+1) * '\t'
-        if i in variable_names:
-             print '{}Var Name: '.format(indent),variable_names(i)
 
-        print '{}Container Expression: '.format(indent), A
-        print '{}Arguments: '.format(indent), children
-        print '{}Variable Names: '.format(indent), variable_names
-
-        if exp_obj_name is None:
-            exp_obj_name = name
-        Expression = [A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name]
-        x = bool_ineqs(A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name) #Prints the inequalities. List form
-        print x
-        linear_ineq_list.append(x)
+def linear_fxn(lpp, linear_con):
+    '''Created for ease of adding linear constraints'''
+    # lpp = linear programming or 'p' in this case, linear_con = linear constraint
+    lpp.prob.add_linear_constraints(linear_con)
 
 
-def combine_list(L):
+def flatten_list(biglist):
+    '''Takes a list of lists and combines then into a singular list'''
     results = []
-    for equations in L:
+    for equations in biglist:
         for values in equations:
             results.append(values)
     return results
