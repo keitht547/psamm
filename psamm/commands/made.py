@@ -150,13 +150,13 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
         raise ValueError('Argument contains only variables, no operators')
 
     x = names # A list of the unicode characters of the variables in the expression
-    ineq = [] #The list of inequalities to be returned
-    ineq1 = ' + '.join(x) # The first inequality
     if ctype in dict_var.keys():
         Y = dict_var[ctype]
     else:
         Y = 'Y'
 
+    ineq = [] #The list of inequalities to be returned
+    ineq1 = ' + '.join(x) # The first inequality
     ineq.append(Y+relation1+ineq1+modify)
     for j in range(N):
         if obj_name is not None:
@@ -188,6 +188,7 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
         Q = yvar <= M
         linear_fxn(problem, Q)
         print Q
+
     if label == 'and':
         S = None
         for k in rightsidelist:
