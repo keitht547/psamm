@@ -26,6 +26,8 @@ from psamm.expression import boolean
 from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
+import csv
+
 
 
 
@@ -45,24 +47,28 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             '--flux-threshold',
             help='Enter maximum objective flux as a decimal or percent',
             type=MaybeRelative, default = MaybeRelative('100%'), nargs='?')
+        parser.add_argument('--transc_file', help='Enter path to transcriptomic data file',
+        metavar='FILE')
         super(MadeFluxBalance, cls).init_parser(parser)
 
     def run(self):
         """Run MADE implementation."""
 #Reaction string
-        x = self.parse_dict()
-        var_dict = {}
-        linear_ineq_list = []
-        var_gen = ('y{}'.format(i) for i in count(1))
-        problem = self.flux_setup()
-        for key, value in x.iteritems():
-            e = boolean.Expression(value)
-            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
-            print (key,value) #Prints reaction ID and gene string
-            print ' '
+        # x = self.parse_dict()
+        # var_dict = {}
+        # linear_ineq_list = []
+        # var_gen = ('y{}'.format(i) for i in count(1))
+        # problem = self.flux_setup()
+        # for key, value in x.iteritems():
+        #     e = boolean.Expression(value)
+        #     exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
+        #     print (key,value) #Prints reaction ID and gene string
+        #     print ' '
             # print ' '
         # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
         # print master_ineq_list
+
+        print IDC(open_file(self))
 
 
 
@@ -217,3 +223,35 @@ def flatten_list(biglist):
         for values in equations:
             results.append(values)
     return results
+
+def open_file(self):
+    '''Returns the contents of toy model file in a tuple of dictionaries'''
+    path = self._args.transc_file
+    file1 = open(path)
+    con1_dict = {}
+    con2_dict = {}
+    pval_dict = {}
+
+    for row in csv.reader(file1, delimiter=str('\t')):
+        print row
+        try:
+            con1_dict[row[0]] = float(row[1])
+            con2_dict[row[0]] = float(row[2])
+            pval_dict[row[0]] = float(row[3])
+        except ValueError:
+            print row[1], row[2], row[3]
+
+    return (con1_dict, con2_dict, pval_dict)
+
+def IDC(dicts, significance=0.05):
+    '''Generates the increasing, decreasing, constant dictionary.'''
+    con1 = dicts[0]
+    con2 = dicts[1]
+    pval = dicts[2]
+    diff = {}
+    for key in con1:
+        if con2[key]-con1[key] == 0 or pval[key] > significance:
+            diff[key] = 0
+        else:
+            diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
+    return (con1,con2,pval,diff)
