@@ -66,7 +66,10 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             print (key,value) #Prints reaction ID and GPR associations
             print ' '
         self.minimum_flux()
-        IDC(open_file(self))
+        # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
+        # print master_ineq_list
+
+        print IDC(open_file(self))
 
     def make_obj_fun(gv1, gv2, gp, gd):
         MILP_obj = 0
@@ -78,6 +81,10 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
                 MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
             elif gd[gene] == 0:
                 MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+
+
+
+
 
     def parse_dict(self):
         '''Parses file into a dictionary'''
@@ -227,6 +234,17 @@ def linear_fxn(lpp, linear_con):
     # lpp = linear programming problem, linear_con = linear constraint
 
 
+
+
+
+def flatten_list(biglist):
+    '''Takes a list of lists and combines then into a singular list'''
+    results = []
+    for equations in biglist:
+        for values in equations:
+            results.append(values)
+    return results
+
 def open_file(self):
     '''Returns the contents of toy model file in a tuple of dictionaries'''
     path = self._args.transc_file
@@ -247,6 +265,7 @@ def open_file(self):
     return con1_dict, con2_dict, pval_dict
 
 
+
 def IDC(dicts, significance=0.05):
     '''Generates the increasing, decreasing, constant dictionary.'''
     con1 = dicts[0]
@@ -258,4 +277,5 @@ def IDC(dicts, significance=0.05):
             diff[key] = 0
         else:
             diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
+
     return con1,con2,pval,diff
