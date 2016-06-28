@@ -60,7 +60,8 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
             print (key,value) #Prints reaction ID and gene string
             print ' '
-            # print ' '
+        self.minimum_flux()
+
         # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
         # print master_ineq_list
 
@@ -75,15 +76,27 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
     def minimum_flux(self):
         '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
-        q = self._args.flux_threshold
+        thresh = self._args.flux_threshold
         solver = self._get_solver(integer=True)
         mm_model = self._mm
         nat_model = self._model
         obj_func = nat_model.get_biomass_reaction()
         p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
         p.maximize(obj_func)
-        flux = p.get_flux(obj_func)
-        return q.value*flux
+        obj_flux = p.get_flux(obj_func)
+        
+        obj_var = p.get_flux_var(obj_func)
+        linear_fxn(p, obj_var >= thresh.value*obj_flux)
+        p.minimize_l1()
+        Biomass = p.get_flux(obj_func)
+
+        print obj_func # reaction
+        print obj_flux #after maximized
+        print thresh.value*obj_flux #maxed flux * threshold
+        print Biomass # after minimzed
+        # return obj_func
+        # return obj_flux
+        # return thresh.value*obj_flux
 
 
     def flux_setup(self):
