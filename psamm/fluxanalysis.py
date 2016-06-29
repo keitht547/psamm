@@ -169,6 +169,18 @@ class FluxBalanceProblem(object):
         self._prob.set_objective(self.flux_expr(reaction))
         self._solve()
 
+    def maximize_ineq(self, reaction):
+        """Solve the model by maximizing the given reaction.
+
+        If reaction is a dictionary object, each entry is interpreted as a
+        weight on the objective for that reaction (non-existent reaction will
+        have zero weight).
+        """
+
+        self._prob.set_objective(self.ineq_expr(reaction))
+        self._solve()
+
+
     def flux_bound(self, reaction, direction):
         """Return the flux bound of the reaction.
 
@@ -213,6 +225,23 @@ class FluxBalanceProblem(object):
 
         objective = self._prob.expr({
             ('z', reaction_id): -weights.get(reaction_id, 1)
+            for reaction_id in self._model.reactions})
+        self._prob.set_objective(objective)
+
+        self._solve()
+
+    def minimize_l1_ineqs(self, weights={}):
+        """Solve the model by minimizing the L1 norm of the fluxes.
+
+        If the weights dictionary is given, the weighted L1 norm if minimized
+        instead. The dictionary contains the weights of each reaction
+        (default 1).
+        """
+
+        self._add_minimization_vars()
+
+        objective = self._prob.expr({
+            ('i', reaction_id): -weights.get(reaction_id, 1)
             for reaction_id in self._model.reactions})
         self._prob.set_objective(objective)
 
@@ -277,10 +306,20 @@ class FluxBalanceProblem(object):
                 {('v', r): v for r, v in iteritems(reaction)})
         return self._prob.expr(('v', reaction))
 
+    def ineq_expr(self, reaction):
+        """Get LP expression representing the reaction flux."""
+        if isinstance(reaction, dict):
+            return self._prob.expr(
+                {('i', r): v for r, v in iteritems(reaction)})
+        return self._prob.expr(('i', reaction))
+
     def get_flux(self, reaction):
         """Get resulting flux value for reaction."""
         return self._prob.result.get_value(('v', reaction))
 
+    def get_ineq(self, reaction):
+        """Get resulting flux value for reaction."""
+        return self._prob.result.get_value(('i', reaction))
 
 def flux_balance(model, reaction, tfba, solver):
     """Run flux balance analysis on the given model.

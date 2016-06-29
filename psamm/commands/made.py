@@ -47,28 +47,35 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             '--flux-threshold',
             help='Enter maximum objective flux as a decimal or percent',
             type=MaybeRelative, default = MaybeRelative('100%'), nargs='?')
-        parser.add_argument('--transc_file', help='Enter path to transcriptomic data file',
+        parser.add_argument('--transc-file', help='Enter path to transcriptomic data file',
         metavar='FILE')
         super(MadeFluxBalance, cls).init_parser(parser)
 
     def run(self):
         """Run MADE implementation."""
 #Reaction string
-        # x = self.parse_dict()
-        # var_dict = {}
-        # linear_ineq_list = []
-        # var_gen = ('y{}'.format(i) for i in count(1))
-        # problem = self.flux_setup()
-        # for key, value in x.iteritems():
-        #     e = boolean.Expression(value)
-        #     exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
-        #     print (key,value) #Prints reaction ID and gene string
-        #     print ' '
-            # print ' '
-        # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
-        # print master_ineq_list
 
-        print IDC(open_file(self))
+        x = self.parse_dict()
+        var_dict = {}
+        linear_ineq_list = []
+        var_gen = ('y{}'.format(i) for i in count(1))
+        problem = self.flux_setup()
+
+        for key, value in x.iteritems():
+            e = boolean.Expression(value)
+            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
+            print (key,value) #Prints reaction ID and gene string
+            print ' '
+        #self.minimum_flux
+        # print var_dict
+        # for n in range(6):
+        #     print var_dict[unicode('g_'+unicode((n+1)))]
+        #print IDC(open_file(self))
+
+        linear_fxn(problem, problem.get_ineq_var('y1') == 0^1)
+        problem.maximize_ineq('y1')
+        problem.minimize_l1()
+        print problem.get_ineq('y1')
 
 
 
@@ -81,15 +88,27 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
     def minimum_flux(self):
         '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
-        q = self._args.flux_threshold
+        thresh = self._args.flux_threshold
         solver = self._get_solver(integer=True)
         mm_model = self._mm
         nat_model = self._model
         obj_func = nat_model.get_biomass_reaction()
         p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
         p.maximize(obj_func)
-        flux = p.get_flux(obj_func)
-        return q.value*flux
+        obj_flux = p.get_flux(obj_func)
+
+        obj_var = p.get_flux_var(obj_func)
+        linear_fxn(p, obj_var >= thresh.value*obj_flux)
+        p.minimize_l1()
+        Biomass = p.get_flux(obj_func)
+
+        print obj_func # reaction
+        print obj_flux #after maximized
+        print thresh.value*obj_flux #maxed flux * threshold
+        print Biomass # after minimzed
+        # return obj_func
+        # return obj_flux
+        # return thresh.value*obj_flux
 
 
     def flux_setup(self):
@@ -107,7 +126,7 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
     '''Opens and identifies all containers with the variables and arguments
         as well outputs the associated inequalities'''
     var_dict[A] = name
-    problem.prob.define(("i", name))
+    problem.prob.define(("i", name), 'B')
     if type(A) is not boolean.Variable:
         exp_obj_name =var_dict.get(A)
         children = []
@@ -119,7 +138,7 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
             exp_gene_string(i, var_gen, var_dict, q, linear_ineq_list, problem)
             indent = (N+1) * '\t'
         for j in variable_names:
-            problem.prob.define(("i",j))
+            problem.prob.define(("i",j), 'B')
         # for i in problem.prob._variables:
         #     print(i)
 
@@ -129,10 +148,13 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
         print '{}Arguments: '.format(indent), children
         print '{}Variable Names: '.format(indent), variable_names
 
+
+
         if exp_obj_name is None:
             exp_obj_name = name
         x = bool_ineqs(A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name, problem) #Prints the inequalities in list form
         linear_ineq_list.append(x)
+
 
 
 
@@ -227,7 +249,7 @@ def flatten_list(biglist):
 def open_file(self):
     '''Returns the contents of toy model file in a tuple of dictionaries'''
     path = self._args.transc_file
-    file1 = open(path)
+    file1 = open(str(path))
     con1_dict = {}
     con2_dict = {}
     pval_dict = {}
