@@ -27,6 +27,7 @@ from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
 import csv
+import math
 
 
 
@@ -65,8 +66,18 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             print (key,value) #Prints reaction ID and GPR associations
             print ' '
         self.minimum_flux()
-        # print IDC(open_file(self))
+        IDC(open_file(self))
 
+    def make_obj_fun(gv1, gv2, gp, gd):
+        MILP_obj = 0
+        for gene, var in gv1.iteritems():
+            wp = gp[gene]
+            if gd[gene] == 1:
+                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+            elif gd[gene] == -1:
+                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+            elif gd[gene] == 0:
+                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
 
     def parse_dict(self):
         '''Parses file into a dictionary'''
