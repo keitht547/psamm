@@ -27,7 +27,6 @@ from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
 import csv
-import math
 
 
 
@@ -66,10 +65,16 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             print (key,value) #Prints reaction ID and GPR associations
             print ' '
         self.minimum_flux()
+
+        if self._args.transc_file != None:
+            print IDC(open_file(self))
+
         # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
         # print master_ineq_list
 
-        print IDC(open_file(self))
+        nat_model = self._model
+        mm = nat_model.create_metabolic_model()
+        rxn_info(mm, problem)
 
     def make_obj_fun(gv1, gv2, gp, gd):
         MILP_obj = 0
@@ -81,9 +86,6 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
                 MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
             elif gd[gene] == 0:
                 MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
-
-
-
 
 
     def parse_dict(self):
@@ -231,10 +233,8 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
 def linear_fxn(lpp, linear_con):
     '''For adding linear constraints'''
     lpp.prob.add_linear_constraints(linear_con)
+
     # lpp = linear programming problem, linear_con = linear constraint
-
-
-
 
 
 def flatten_list(biglist):
@@ -265,7 +265,6 @@ def open_file(self):
     return con1_dict, con2_dict, pval_dict
 
 
-
 def IDC(dicts, significance=0.05):
     '''Generates the increasing, decreasing, constant dictionary.'''
     con1 = dicts[0]
@@ -273,9 +272,25 @@ def IDC(dicts, significance=0.05):
     pval = dicts[2]
     diff = {}
     for key in con1:
-        if con2[key]-con1[key] == 0 or pval[key] > significance:
+        if con2[key]-con1[key] == 0 or pval[key] >= significance:
             diff[key] = 0
         else:
             diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
 
     return con1,con2,pval,diff
+
+
+def rxn_info(mm, problem):
+    '''Returns Dict:{rxn id: [low bound, high bound, fluxvar lp.Expression]}'''
+    info = {}
+    for rxn in mm.reactions:
+        info_list = []
+        info_list.append(mm.limits.__getitem__(rxn).bounds[0])
+        info_list.append(mm.limits.__getitem__(rxn).bounds[1])
+        #   __getitem__ could be replaced by _create_bounds, or another function
+        #   could be implemented.
+
+        info_list.append(problem.get_flux_var(rxn))
+        info[rxn] = info_list
+        print type(problem.get_flux_var(rxn))
+    print info
