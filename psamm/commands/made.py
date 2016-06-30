@@ -27,6 +27,7 @@ from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
 import csv
+import math
 
 
 
@@ -51,10 +52,14 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         metavar='FILE')
         super(MadeFluxBalance, cls).init_parser(parser)
 
+
     def run(self):
         """Run MADE implementation."""
+<<<<<<< HEAD
 #Reaction string
 
+=======
+>>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
         x = self.parse_dict()
         var_dict = {}
         linear_ineq_list = []
@@ -64,8 +69,9 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         for key, value in x.iteritems():
             e = boolean.Expression(value)
             exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
-            print (key,value) #Prints reaction ID and gene string
+            print (key,value) #Prints reaction ID and GPR associations
             print ' '
+<<<<<<< HEAD
         #self.minimum_flux
         # print var_dict
         # for n in range(6):
@@ -78,37 +84,28 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print problem.get_ineq('y1')
 
 
+=======
+        self.minimum_flux()
+        IDC(open_file(self))
+
+    def make_obj_fun(gv1, gv2, gp, gd):
+        MILP_obj = 0
+        for gene, var in gv1.iteritems():
+            wp = gp[gene]
+            if gd[gene] == 1:
+                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+            elif gd[gene] == -1:
+                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+            elif gd[gene] == 0:
+                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+>>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
 
     def parse_dict(self):
+        '''Parses file into a dictionary'''
         gene_dict = {}
         for i in self._model.parse_reactions():
             gene_dict[i.id] = i.genes
         return(gene_dict)
-
-
-    def minimum_flux(self):
-        '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
-        thresh = self._args.flux_threshold
-        solver = self._get_solver(integer=True)
-        mm_model = self._mm
-        nat_model = self._model
-        obj_func = nat_model.get_biomass_reaction()
-        p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
-        p.maximize(obj_func)
-        obj_flux = p.get_flux(obj_func)
-
-        obj_var = p.get_flux_var(obj_func)
-        linear_fxn(p, obj_var >= thresh.value*obj_flux)
-        p.minimize_l1()
-        Biomass = p.get_flux(obj_func)
-
-        print obj_func # reaction
-        print obj_flux #after maximized
-        print thresh.value*obj_flux #maxed flux * threshold
-        print Biomass # after minimzed
-        # return obj_func
-        # return obj_flux
-        # return thresh.value*obj_flux
 
 
     def flux_setup(self):
@@ -122,9 +119,32 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         return p
 
 
+    def minimum_flux(self):
+        '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
+        thresh = self._args.flux_threshold
+        solver = self._get_solver(integer=True)
+        mm_model = self._mm
+        nat_model = self._model
+        obj_func = nat_model.get_biomass_reaction()
+        p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
+        p.maximize(obj_func)
+        obj_flux = p.get_flux(obj_func)
+<<<<<<< HEAD
+
+=======
+>>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
+        obj_var = p.get_flux_var(obj_func)
+        linear_fxn(p, obj_var >= thresh.value*obj_flux)
+
+        p.minimize_l1()
+        Biomass = p.get_flux(obj_func)
+        print 'Ojective Reaction: {}'.format(obj_func)
+        print 'Objective flux: {}'.format(obj_flux)
+        print 'Biomass flux: {}'.format(Biomass)
+
+
 def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
-    '''Opens and identifies all containers with the variables and arguments
-        as well outputs the associated inequalities'''
+    '''Opens all containers, defines content, outputs the linear ineqs'''
     var_dict[A] = name
     problem.prob.define(("i", name), 'B')
     if type(A) is not boolean.Variable:
@@ -133,15 +153,19 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
         variable_names = []
         for N,i in enumerate(A):
             children.append(i)
-            q = next(var_gen)
-            variable_names.append(q)
-            exp_gene_string(i, var_gen, var_dict, q, linear_ineq_list, problem)
+            newvar = next(var_gen)
+            variable_names.append(newvar)
+            exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list, problem)
             indent = (N+1) * '\t'
         for j in variable_names:
+<<<<<<< HEAD
             problem.prob.define(("i",j), 'B')
         # for i in problem.prob._variables:
         #     print(i)
 
+=======
+            problem.prob.define(("i",j))
+>>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
         if i in variable_names:
              print '{}Var Name: '.format(indent),variable_names(i)
         print '{}Container Expression: '.format(indent), A
@@ -152,17 +176,20 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
 
         if exp_obj_name is None:
             exp_obj_name = name
-        x = bool_ineqs(A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name, problem) #Prints the inequalities in list form
+        x = bool_ineqs(A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name, problem)
         linear_ineq_list.append(x)
 
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
 def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
     '''Input homogenous boolean.Expression type.
-    Returns a list of corresponding unicode inequalities'''
+    Returns corresponding unicode inequalities'''
 
-    N = len(containing) # Length of the chilren list
+    N = len(containing) # Length of the children list
     if isinstance(ctype, boolean.And):
         label = 'and'
         relation1 = ' >= '
@@ -183,68 +210,61 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
     else:
         Y = 'Y'
 
-    ineq = [] #The list of inequalities to be returned
-    ineq1 = ' + '.join(x) # The first inequality
-    ineq.append(Y+relation1+ineq1+modify)
-    for j in range(N):
-        if obj_name is not None:
-            ineq.append(obj_name+relation2+x[j])
-        else:
-             ineq.append(obj_name+relation2+x[j])# Subsequent inequalities
-    # return ineq
+    # Used for outputting a string of inequalities
+    # ineq = [] #The list of inequalities to be returned
+    # ineq1 = ' + '.join(x) # The first inequality
+    # ineq.append(Y+relation1+ineq1+modify)
+    # for j in range(N):
+    #     if obj_name is not None:
+    #         ineq.append(obj_name+relation2+x[j])
+    #     else:
+    #          ineq.append(obj_name+relation2+x[j])# Subsequent inequalities
+    # print ineq
 
-
-    '''The following was appended on 6/24/16'''
     yvar = problem.get_ineq_var(Y)
-    rightsidelist = []
+    RHSlist = []
     for i in names:
         xvar = problem.get_ineq_var(i)
-        rightsidelist.append(xvar)
-    # print yvar
-    # print rightsidelist
+        RHSlist.append(xvar)
 
     if label == 'or':
-        M = None
-        for k in rightsidelist:
-            L = yvar >= k
-            linear_fxn(problem, L)
-            print L
-            if M is None:
-                M = k
+        or_group = None
+        for ineq_var in RHSlist:
+            #Individual variable inequalities
+            orindiv = yvar >= ineq_var
+            linear_fxn(problem, orindiv)
+            print orindiv
+            #Container inequalities
+            if or_group is None:
+                or_group = ineq_var
             else:
-                M = k+M
-        Q = yvar <= M
-        linear_fxn(problem, Q)
-        print Q
+                or_group = ineq_var + or_group
+        or_cont = yvar <= or_group
+        linear_fxn(problem, or_cont)
+        print or_cont
 
     if label == 'and':
-        S = None
-        for k in rightsidelist:
-            R = yvar <= k
-            linear_fxn(problem, R)
-            print R
-            if S is None:
-                S = k
+        and_group = None
+        for ineq_var in RHSlist:
+            #Individual variable inequalities
+            andindiv = yvar <= ineq_var
+            linear_fxn(problem, andindiv)
+            print andindiv
+            #Container inequalities
+            if and_group is None:
+                and_group = ineq_var
             else:
-                S = k + S
-        T = yvar >= S - (N-1)
-        linear_fxn(problem, T)
-        print T
+                and_group = ineq_var + and_group
+        and_cont = yvar >= and_group - (N-1)
+        linear_fxn(problem, and_cont)
+        print and_cont
 
 
 def linear_fxn(lpp, linear_con):
-    '''Created for ease of adding linear constraints'''
-    # lpp = linear programming or 'p' in this case, linear_con = linear constraint
+    '''For adding linear constraints'''
     lpp.prob.add_linear_constraints(linear_con)
+    # lpp = linear programming problem, linear_con = linear constraint
 
-
-def flatten_list(biglist):
-    '''Takes a list of lists and combines then into a singular list'''
-    results = []
-    for equations in biglist:
-        for values in equations:
-            results.append(values)
-    return results
 
 def open_file(self):
     '''Returns the contents of toy model file in a tuple of dictionaries'''
@@ -263,7 +283,8 @@ def open_file(self):
         except ValueError:
             print row[1], row[2], row[3]
 
-    return (con1_dict, con2_dict, pval_dict)
+    return con1_dict, con2_dict, pval_dict
+
 
 def IDC(dicts, significance=0.05):
     '''Generates the increasing, decreasing, constant dictionary.'''
@@ -276,4 +297,4 @@ def IDC(dicts, significance=0.05):
             diff[key] = 0
         else:
             diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
-    return (con1,con2,pval,diff)
+    return con1,con2,pval,diff
