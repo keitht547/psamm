@@ -27,7 +27,6 @@ from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
 import csv
-import math
 
 
 
@@ -48,57 +47,38 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             '--flux-threshold',
             help='Enter maximum objective flux as a decimal or percent',
             type=MaybeRelative, default = MaybeRelative('100%'), nargs='?')
-        parser.add_argument('--transc-file', help='Enter path to transcriptomic data file',
+        parser.add_argument('--transc_file', help='Enter path to transcriptomic data file',
         metavar='FILE')
         super(MadeFluxBalance, cls).init_parser(parser)
 
 
     def run(self):
         """Run MADE implementation."""
-<<<<<<< HEAD
-#Reaction string
-
-=======
->>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
         x = self.parse_dict()
         var_dict = {}
         linear_ineq_list = []
         var_gen = ('y{}'.format(i) for i in count(1))
         problem = self.flux_setup()
-
         for key, value in x.iteritems():
             e = boolean.Expression(value)
             exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
             print (key,value) #Prints reaction ID and GPR associations
             print ' '
-<<<<<<< HEAD
-        #self.minimum_flux
-        # print var_dict
-        # for n in range(6):
-        #     print var_dict[unicode('g_'+unicode((n+1)))]
-        #print IDC(open_file(self))
-
-        linear_fxn(problem, problem.get_ineq_var('y1') == 0^1)
-        problem.maximize_ineq('y1')
-        problem.minimize_l1()
-        print problem.get_ineq('y1')
-
-
-=======
         self.minimum_flux()
-        IDC(open_file(self))
+        if self._args.transc_file != None:
+            print IDC(open_file(self))
 
-    def make_obj_fun(gv1, gv2, gp, gd):
-        MILP_obj = 0
-        for gene, var in gv1.iteritems():
-            wp = gp[gene]
-            if gd[gene] == 1:
-                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
-            elif gd[gene] == -1:
-                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
-            elif gd[gene] == 0:
-                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
->>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
+        # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
+        # print master_ineq_list
+
+
+
+        nat_model = self._model
+        mm = nat_model.create_metabolic_model()
+        rxn_info(mm, problem)
+
+
+
 
     def parse_dict(self):
         '''Parses file into a dictionary'''
@@ -129,10 +109,6 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
         p.maximize(obj_func)
         obj_flux = p.get_flux(obj_func)
-<<<<<<< HEAD
-
-=======
->>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
         obj_var = p.get_flux_var(obj_func)
         linear_fxn(p, obj_var >= thresh.value*obj_flux)
 
@@ -146,7 +122,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
     '''Opens all containers, defines content, outputs the linear ineqs'''
     var_dict[A] = name
-    problem.prob.define(("i", name), 'B')
+    problem.prob.define(("i", name))
     if type(A) is not boolean.Variable:
         exp_obj_name =var_dict.get(A)
         children = []
@@ -158,21 +134,12 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
             exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list, problem)
             indent = (N+1) * '\t'
         for j in variable_names:
-<<<<<<< HEAD
-            problem.prob.define(("i",j), 'B')
-        # for i in problem.prob._variables:
-        #     print(i)
-
-=======
             problem.prob.define(("i",j))
->>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
         if i in variable_names:
              print '{}Var Name: '.format(indent),variable_names(i)
         print '{}Container Expression: '.format(indent), A
         print '{}Arguments: '.format(indent), children
         print '{}Variable Names: '.format(indent), variable_names
-
-
 
         if exp_obj_name is None:
             exp_obj_name = name
@@ -180,11 +147,6 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
         linear_ineq_list.append(x)
 
 
-<<<<<<< HEAD
-
-
-=======
->>>>>>> 7850634a4a17d2946dfcdafad51bcbe5ebed0ce7
 def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
     '''Input homogenous boolean.Expression type.
     Returns corresponding unicode inequalities'''
@@ -263,13 +225,22 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
 def linear_fxn(lpp, linear_con):
     '''For adding linear constraints'''
     lpp.prob.add_linear_constraints(linear_con)
+
     # lpp = linear programming problem, linear_con = linear constraint
 
+
+def flatten_list(biglist):
+    '''Takes a list of lists and combines then into a singular list'''
+    results = []
+    for equations in biglist:
+        for values in equations:
+            results.append(values)
+    return results
 
 def open_file(self):
     '''Returns the contents of toy model file in a tuple of dictionaries'''
     path = self._args.transc_file
-    file1 = open(str(path))
+    file1 = open(path)
     con1_dict = {}
     con2_dict = {}
     pval_dict = {}
@@ -286,6 +257,8 @@ def open_file(self):
     return con1_dict, con2_dict, pval_dict
 
 
+    return con1_dict, con2_dict, pval_dict
+
 def IDC(dicts, significance=0.05):
     '''Generates the increasing, decreasing, constant dictionary.'''
     con1 = dicts[0]
@@ -293,8 +266,25 @@ def IDC(dicts, significance=0.05):
     pval = dicts[2]
     diff = {}
     for key in con1:
-        if con2[key]-con1[key] == 0 or pval[key] > significance:
+        if con2[key]-con1[key] == 0 or pval[key] >= significance:
             diff[key] = 0
         else:
             diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
     return con1,con2,pval,diff
+
+    return con1,con2,pval,diff
+
+def rxn_info(mm, problem):
+    '''Returns Dict:{rxn id: [low bound, high bound, fluxvar lp.Expression]}'''
+    info = {}
+    for rxn in mm.reactions:
+        info_list = []
+        info_list.append(mm.limits.__getitem__(rxn).bounds[0])
+        info_list.append(mm.limits.__getitem__(rxn).bounds[1])
+        #   __getitem__ could be replaced by _create_bounds, or another function
+        #   could be implemented.
+
+        info_list.append(problem.get_flux_var(rxn))
+        info[rxn] = info_list
+        print type(problem.get_flux_var(rxn))
+    print info
