@@ -65,19 +65,27 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             print (key,value) #Prints reaction ID and GPR associations
             print ' '
         self.minimum_flux()
+
         if self._args.transc_file != None:
             print IDC(open_file(self))
 
         # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
         # print master_ineq_list
 
-
-
         nat_model = self._model
         mm = nat_model.create_metabolic_model()
         rxn_info(mm, problem)
 
-
+    def make_obj_fun(gv1, gv2, gp, gd):
+        MILP_obj = 0
+        for gene, var in gv1.iteritems():
+            wp = gp[gene]
+            if gd[gene] == 1:
+                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+            elif gd[gene] == -1:
+                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+            elif gd[gene] == 0:
+                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
 
 
     def parse_dict(self):
@@ -257,8 +265,6 @@ def open_file(self):
     return con1_dict, con2_dict, pval_dict
 
 
-    return con1_dict, con2_dict, pval_dict
-
 def IDC(dicts, significance=0.05):
     '''Generates the increasing, decreasing, constant dictionary.'''
     con1 = dicts[0]
@@ -270,9 +276,9 @@ def IDC(dicts, significance=0.05):
             diff[key] = 0
         else:
             diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
-    return con1,con2,pval,diff
 
     return con1,con2,pval,diff
+
 
 def rxn_info(mm, problem):
     '''Returns Dict:{rxn id: [low bound, high bound, fluxvar lp.Expression]}'''
