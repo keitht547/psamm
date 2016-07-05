@@ -56,25 +56,25 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         """Run MADE implementation."""
         x = self.parse_dict()
         var_dict = {}
+        reaction_dict = {}
         linear_ineq_list = []
         var_gen = ('y{}'.format(i) for i in count(1))
         problem = self.flux_setup()
         for key, value in x.iteritems():
             e = boolean.Expression(value)
-            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
+            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem, reaction_dict)
             print (key,value) #Prints reaction ID and GPR associations
             print ' '
+        print reaction_dict
         self.minimum_flux()
 
         if self._args.transc_file != None:
             print IDC(open_file(self))
 
-        # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
-        # print master_ineq_list
-
         nat_model = self._model
         mm = nat_model.create_metabolic_model()
         rxn_info(mm, problem)
+
 
     def make_obj_fun(gv1, gv2, gp, gd):
         MILP_obj = 0
@@ -127,10 +127,12 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print 'Biomass flux: {}'.format(Biomass)
 
 
-def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
+def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem, reaction_dict):
     '''Opens all containers, defines content, outputs the linear ineqs'''
     var_dict[A] = name
     problem.prob.define(("i", name))
+    namevar = problem.get_ineq_var(name)
+    reaction_dict[name] = namevar
     if type(A) is not boolean.Variable:
         exp_obj_name =var_dict.get(A)
         children = []
@@ -139,7 +141,7 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
             children.append(i)
             newvar = next(var_gen)
             variable_names.append(newvar)
-            exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list, problem)
+            exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list, problem, reaction_dict)
             indent = (N+1) * '\t'
         for j in variable_names:
             problem.prob.define(("i",j))
@@ -153,6 +155,7 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
             exp_obj_name = name
         x = bool_ineqs(A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name, problem)
         linear_ineq_list.append(x)
+
 
 
 def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
@@ -233,17 +236,8 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
 def linear_fxn(lpp, linear_con):
     '''For adding linear constraints'''
     lpp.prob.add_linear_constraints(linear_con)
-
     # lpp = linear programming problem, linear_con = linear constraint
 
-
-def flatten_list(biglist):
-    '''Takes a list of lists and combines then into a singular list'''
-    results = []
-    for equations in biglist:
-        for values in equations:
-            results.append(values)
-    return results
 
 def open_file(self):
     '''Returns the contents of toy model file in a tuple of dictionaries'''
