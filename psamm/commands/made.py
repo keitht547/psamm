@@ -27,7 +27,8 @@ from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
 import csv
-
+import math
+import random
 
 
 
@@ -47,7 +48,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             '--flux-threshold',
             help='Enter maximum objective flux as a decimal or percent',
             type=MaybeRelative, default = MaybeRelative('100%'), nargs='?')
-        parser.add_argument('--transc_file', help='Enter path to transcriptomic data file',
+        parser.add_argument('--transc-file', help='Enter path to transcriptomic data file',
         metavar='FILE')
         super(MadeFluxBalance, cls).init_parser(parser)
 
@@ -67,26 +68,39 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         self.minimum_flux()
 
         if self._args.transc_file != None:
-            print IDC(open_file(self))
+            data = IDC(open_file(self))
+
 
         # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
         # print master_ineq_list
 
         nat_model = self._model
         mm = nat_model.create_metabolic_model()
-        rxn_info(mm, problem)
+        info_dict = rxn_info(mm, problem)
 
-    def make_obj_fun(gv1, gv2, gp, gd):
+        for rxn, info in info_dict.iteritems():
+            vmin = info[0]
+            vmax = info[1]
+            fluxvar = info[2]
+            Y = 1
+            linear_fxn(problem, fluxvar + Y*vmax <= 0)
+            linear_fxn(problem, 0 <= fluxvar - Y*vmin)
+            #must define Y
+
+
+
+
+    def make_obj_fun(self, gv1, gv2, gp, gd, x):
         MILP_obj = 0
         for gene, var in gv1.iteritems():
             wp = gp[gene]
             if gd[gene] == 1:
-                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+                MILP_obj += (-math.log10(gp[gene]))*(x[gene][1] - x[gene][0])
             elif gd[gene] == -1:
-                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+                MILP_obj += (-math.log10(gp[gene]))*(x[gene][0] - x[gene][1])
             elif gd[gene] == 0:
-                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
-
+                MILP_obj += (-math.log10(gp[gene]))*abs(x[gene][1] - x[gene][0])
+        return MILP_obj
 
     def parse_dict(self):
         '''Parses file into a dictionary'''
@@ -108,7 +122,8 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
 
     def minimum_flux(self):
-        '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
+        '''Returns a biomass flux threshold that is a fraction of the maximum flux.
+        Not in final working condition yet - notice te absence of a return.'''
         thresh = self._args.flux_threshold
         solver = self._get_solver(integer=True)
         mm_model = self._mm
@@ -254,13 +269,12 @@ def open_file(self):
     pval_dict = {}
 
     for row in csv.reader(file1, delimiter=str('\t')):
-        print row
         try:
             con1_dict[row[0]] = float(row[1])
             con2_dict[row[0]] = float(row[2])
             pval_dict[row[0]] = float(row[3])
         except ValueError:
-            print row[1], row[2], row[3]
+            print 'Cannot convert string to float',row[1], row[2], row[3]
 
     return con1_dict, con2_dict, pval_dict
 
@@ -272,7 +286,7 @@ def IDC(dicts, significance=0.05):
     pval = dicts[2]
     diff = {}
     for key in con1:
-        if con2[key]-con1[key] == 0 or pval[key] >= significance:
+        if con2[key]-con1[key] == 0 or pval[key] > significance:
             diff[key] = 0
         else:
             diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
@@ -292,5 +306,20 @@ def rxn_info(mm, problem):
 
         info_list.append(problem.get_flux_var(rxn))
         info[rxn] = info_list
-        print type(problem.get_flux_var(rxn))
-    print info
+    return info
+
+def makefake_x(data):
+    value = []
+    for i in range(1):
+        x = {}
+        for key in data[0]:
+            #x[key] = [random.randint(0,1), random.randint(0,1)]
+            if data[3][key] == 1:
+                x[key] = [0,1]
+            elif data[3][key] == 0:
+                x[key] = [1,1]
+            elif data[3][key] == -1:
+                x[key] = [1,0]
+        value.append(MadeFluxBalance.make_obj_fun(self, data[0], data[1],
+        data[2], data [3], x))
+    print max(value)
