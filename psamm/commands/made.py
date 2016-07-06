@@ -20,6 +20,7 @@ from __future__ import unicode_literals
 import argparse
 import time
 import logging
+import math
 from itertools import count
 from psamm.expression import boolean
 
@@ -56,36 +57,30 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         """Run MADE implementation."""
         x = self.parse_dict()
         var_dict = {}
+        var_dict2 = {}
         reaction_dict = {}
+        gv2 = {}
+        trdict = {}
         linear_ineq_list = []
         var_gen = ('y{}'.format(i) for i in count(1))
         problem = self.flux_setup()
         for key, value in x.iteritems():
             e = boolean.Expression(value)
-            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem, reaction_dict)
+            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem, reaction_dict, var_dict2, gv2, trdict)
             print (key,value) #Prints reaction ID and GPR associations
             print ' '
         print reaction_dict
+        print ' '
+        print gv2
         self.minimum_flux()
 
         if self._args.transc_file != None:
-            print IDC(open_file(self))
+            gd = IDC(open_file(self))
 
         nat_model = self._model
         mm = nat_model.create_metabolic_model()
         rxn_info(mm, problem)
-
-
-    def make_obj_fun(gv1, gv2, gp, gd):
-        MILP_obj = 0
-        for gene, var in gv1.iteritems():
-            wp = gp[gene]
-            if gd[gene] == 1:
-                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
-            elif gd[gene] == -1:
-                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
-            elif gd[gene] == 0:
-                MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[gene] - var)
+        make_obj_fun(reaction_dict, gv2, gd[2], gd[3], trdict)
 
 
     def parse_dict(self):
@@ -126,27 +121,60 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print 'Objective flux: {}'.format(obj_flux)
         print 'Biomass flux: {}'.format(Biomass)
 
+def make_obj_fun(gv1, gv2, gp, gd, tr):
+    #gv1 = xi, reaction_dict; gv2 = xi+1, gv2;
+    #gp = gene probability (pvalue), gd = dictionary with increasing/decreasing expression values
+    MILP_obj = 0.0
+    for gene, var in tr.iteritems():
+        print gene, var
+        wp = gp[gene]
+        print type(gp[gene])
+        if gd[gene] == 1:
+            MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[var[1]] - gv1[var[0]])
+        elif gd[gene] == -1:
+            MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv1[var[0]] - gv2[var[1]])
+        elif gd[gene] == 0:
+            MILP_obj = MILP_obj + (-math.log10(gp[gene]))*((gv2[var[1]] - gv1[var[0]]))
+    print 'Objective Function: {}'.format(MILP_obj)
 
-def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem, reaction_dict):
+def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem, reaction_dict, var_dict2, gv2, dict2):
     '''Opens all containers, defines content, outputs the linear ineqs'''
     var_dict[A] = name
     problem.prob.define(("i", name))
     namevar = problem.get_ineq_var(name)
     reaction_dict[name] = namevar
+
+    var_dict2[A] = name +'.2'
+    problem.prob.define(("i", name +'.2'))
+    namevar2 = problem.get_ineq_var(name + '.2')
+    gv2[name + '.2'] = namevar2
+
+    if type(A) is boolean.Variable:
+            print(A)
+            str(A)
+            dict2.setdefault(A.symbol, []).append(name)
+            dict2.setdefault(A.symbol, []).append(name + '.2')
+            print dict2
+
+
     if type(A) is not boolean.Variable:
         exp_obj_name =var_dict.get(A)
         children = []
         variable_names = []
+        variable_names_gv2 = []
         for N,i in enumerate(A):
             children.append(i)
             newvar = next(var_gen)
             variable_names.append(newvar)
-            exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list, problem, reaction_dict)
+            variable_names_gv2.append(newvar + '.2')
+            exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list, problem, reaction_dict, var_dict2, gv2, dict2)
             indent = (N+1) * '\t'
         for j in variable_names:
             problem.prob.define(("i",j))
-        if i in variable_names:
-             print '{}Var Name: '.format(indent),variable_names(i)
+        for k in variable_names_gv2:
+            problem.prob.define(("i", k))
+        # if i in variable_names:
+        #      print '{}Var Name: '.format(indent),variable_names(i)
         print '{}Container Expression: '.format(indent), A
         print '{}Arguments: '.format(indent), children
         print '{}Variable Names: '.format(indent), variable_names
@@ -155,6 +183,12 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem, react
             exp_obj_name = name
         x = bool_ineqs(A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name, problem)
         linear_ineq_list.append(x)
+
+        print '{}Container Expression: '.format(indent), A
+        print '{}Arguments: '.format(indent), children
+        print '{}Variable Names: '.format(indent), variable_names_gv2
+        y = bool_ineqs(A.cont_type(), A.contain(), variable_names_gv2, var_dict2, exp_obj_name, problem)
+        linear_ineq_list.append(y)
 
 
 
