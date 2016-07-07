@@ -28,7 +28,9 @@ from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
 import csv
-
+import math
+import random
+import psamm.lpsolver
 
 
 
@@ -48,7 +50,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             '--flux-threshold',
             help='Enter maximum objective flux as a decimal or percent',
             type=MaybeRelative, default = MaybeRelative('100%'), nargs='?')
-        parser.add_argument('--transc_file', help='Enter path to transcriptomic data file',
+        parser.add_argument('--transc-file', help='Enter path to transcriptomic data file',
         metavar='FILE')
         super(MadeFluxBalance, cls).init_parser(parser)
 
@@ -57,10 +59,12 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         """Run MADE implementation."""
         x = self.parse_dict()
         var_dict = {}
+
         var_dict2 = {}
         reaction_dict = {}
         gv2 = {}
         trdict = {}
+
         linear_ineq_list = []
         var_gen = ('y{}'.format(i) for i in count(1))
         problem = self.flux_setup()
@@ -72,6 +76,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print reaction_dict
         print ' '
         print gv2
+
         self.minimum_flux()
 
         if self._args.transc_file != None:
@@ -79,9 +84,10 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
         nat_model = self._model
         mm = nat_model.create_metabolic_model()
-        rxn_info(mm, problem)
+        info_dict = rxn_info(mm, problem)
         make_obj_fun(reaction_dict, gv2, gd[2], gd[3], trdict)
-
+        add_final_constraints(info_dict, problem, reaction_dict)
+        
 
     def parse_dict(self):
         '''Parses file into a dictionary'''
@@ -103,7 +109,8 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
 
     def minimum_flux(self):
-        '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
+        '''Returns a biomass flux threshold that is a fraction of the maximum flux.
+        Not in final working condition yet - notice te absence of a return.'''
         thresh = self._args.flux_threshold
         solver = self._get_solver(integer=True)
         mm_model = self._mm
@@ -120,6 +127,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print 'Ojective Reaction: {}'.format(obj_func)
         print 'Objective flux: {}'.format(obj_flux)
         print 'Biomass flux: {}'.format(Biomass)
+
 
 def make_obj_fun(gv1, gv2, gp, gd, tr):
     #gv1 = xi, reaction_dict; gv2 = xi+1, gv2;
@@ -156,7 +164,6 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem, react
             dict2.setdefault(A.symbol, []).append(name + '.2')
             print dict2
 
-
     if type(A) is not boolean.Variable:
         exp_obj_name =var_dict.get(A)
         children = []
@@ -167,7 +174,8 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem, react
             newvar = next(var_gen)
             variable_names.append(newvar)
             variable_names_gv2.append(newvar + '.2')
-            exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list, problem, reaction_dict, var_dict2, gv2, dict2)
+            exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list,
+            problem, reaction_dict, var_dict2, gv2, dict2)
             indent = (N+1) * '\t'
         for j in variable_names:
             problem.prob.define(("i",j))
@@ -189,7 +197,6 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem, react
         print '{}Variable Names: '.format(indent), variable_names_gv2
         y = bool_ineqs(A.cont_type(), A.contain(), variable_names_gv2, var_dict2, exp_obj_name, problem)
         linear_ineq_list.append(y)
-
 
 
 def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
@@ -270,8 +277,17 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
 def linear_fxn(lpp, linear_con):
     '''For adding linear constraints'''
     lpp.prob.add_linear_constraints(linear_con)
+
     # lpp = linear programming problem, linear_con = linear constraint
 
+
+def flatten_list(biglist):
+    '''Takes a list of lists and combines then into a singular list'''
+    results = []
+    for equations in biglist:
+        for values in equations:
+            results.append(values)
+    return results
 
 def open_file(self):
     '''Returns the contents of toy model file in a tuple of dictionaries'''
@@ -282,25 +298,25 @@ def open_file(self):
     pval_dict = {}
 
     for row in csv.reader(file1, delimiter=str('\t')):
-        print row
         try:
             con1_dict[row[0]] = float(row[1])
             con2_dict[row[0]] = float(row[2])
             pval_dict[row[0]] = float(row[3])
         except ValueError:
-            print row[1], row[2], row[3]
+            print 'Cannot convert string to float',row[1], row[2], row[3]
 
     return con1_dict, con2_dict, pval_dict
 
 
 def IDC(dicts, significance=0.05):
-    '''Generates the increasing, decreasing, constant dictionary.'''
+    '''Generates the increasing, decreasing, constant dictionary. P-values
+    less than or equal to the significance are considered significant.'''
     con1 = dicts[0]
     con2 = dicts[1]
     pval = dicts[2]
     diff = {}
     for key in con1:
-        if con2[key]-con1[key] == 0 or pval[key] >= significance:
+        if con2[key]-con1[key] == 0 or pval[key] > significance:
             diff[key] = 0
         else:
             diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
@@ -320,5 +336,20 @@ def rxn_info(mm, problem):
 
         info_list.append(problem.get_flux_var(rxn))
         info[rxn] = info_list
-        print type(problem.get_flux_var(rxn))
-    print info
+    return info
+
+
+def add_final_constraints(info_dict, problem, reaction_dict):
+    for rxn, info in info_dict.iteritems():
+        print ''
+        print rxn
+        print info
+        try:
+            vmin = info[0]
+            vmax = info[1]
+            fluxvar = info[2]
+            Y = reaction_dict[rxn]
+        except:
+            print rxn, 'is not in the reaction dictionary.'
+        linear_fxn(problem, fluxvar + Y*vmax <= 0)
+        linear_fxn(problem, 0 <= fluxvar - Y*vmin)
