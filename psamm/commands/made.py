@@ -20,6 +20,7 @@ from __future__ import unicode_literals
 import argparse
 import time
 import logging
+import math
 from itertools import count
 from psamm.expression import boolean
 
@@ -57,26 +58,30 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         """Run MADE implementation."""
         x = self.parse_dict()
         var_dict = {}
+        var_dict2 = {}
+        reaction_dict = {}
+        gv2 = {}
+        trdict = {}
         linear_ineq_list = []
         var_gen = ('y{}'.format(i) for i in count(1))
         problem = self.flux_setup()
         for key, value in x.iteritems():
             e = boolean.Expression(value)
-            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem)
+            exp_gene_string(e.base_tree(), var_gen, var_dict, key, linear_ineq_list, problem, reaction_dict, var_dict2, gv2, trdict)
             print (key,value) #Prints reaction ID and GPR associations
             print ' '
+        print reaction_dict
+        print ' '
+        print gv2
         self.minimum_flux()
 
         if self._args.transc_file != None:
-            data = IDC(open_file(self))
-
-
-        # master_ineq_list = flatten_list(linear_ineq_list) #Complete list of inequalities
-        # print master_ineq_list
+            gd = IDC(open_file(self))
 
         nat_model = self._model
         mm = nat_model.create_metabolic_model()
         info_dict = rxn_info(mm, problem)
+        make_obj_fun(reaction_dict, gv2, gd[2], gd[3], trdict)
 
         for rxn, info in info_dict.iteritems():
             vmin = info[0]
@@ -86,21 +91,6 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             linear_fxn(problem, fluxvar + Y*vmax <= 0)
             linear_fxn(problem, 0 <= fluxvar - Y*vmin)
             #must define Y
-
-
-
-
-    def make_obj_fun(self, gv1, gv2, gp, gd, x):
-        MILP_obj = 0
-        for gene, var in gv1.iteritems():
-            wp = gp[gene]
-            if gd[gene] == 1:
-                MILP_obj += (-math.log10(gp[gene]))*(x[gene][1] - x[gene][0])
-            elif gd[gene] == -1:
-                MILP_obj += (-math.log10(gp[gene]))*(x[gene][0] - x[gene][1])
-            elif gd[gene] == 0:
-                MILP_obj += (-math.log10(gp[gene]))*abs(x[gene][1] - x[gene][0])
-        return MILP_obj
 
     def parse_dict(self):
         '''Parses file into a dictionary'''
@@ -142,24 +132,61 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print 'Biomass flux: {}'.format(Biomass)
 
 
-def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
+def make_obj_fun(gv1, gv2, gp, gd, tr):
+    #gv1 = xi, reaction_dict; gv2 = xi+1, gv2;
+    #gp = gene probability (pvalue), gd = dictionary with increasing/decreasing expression values
+    MILP_obj = 0.0
+    for gene, var in tr.iteritems():
+        print gene, var
+        wp = gp[gene]
+        print type(gp[gene])
+        if gd[gene] == 1:
+            MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[var[1]] - gv1[var[0]])
+        elif gd[gene] == -1:
+            MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv1[var[0]] - gv2[var[1]])
+        elif gd[gene] == 0:
+            MILP_obj = MILP_obj + (-math.log10(gp[gene]))*((gv2[var[1]] - gv1[var[0]]))
+    print 'Objective Function: {}'.format(MILP_obj)
+
+def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem, reaction_dict, var_dict2, gv2, dict2):
     '''Opens all containers, defines content, outputs the linear ineqs'''
     var_dict[A] = name
     problem.prob.define(("i", name))
+    namevar = problem.get_ineq_var(name)
+    reaction_dict[name] = namevar
+
+    var_dict2[A] = name +'.2'
+    problem.prob.define(("i", name +'.2'))
+    namevar2 = problem.get_ineq_var(name + '.2')
+    gv2[name + '.2'] = namevar2
+
+    if type(A) is boolean.Variable:
+            print(A)
+            str(A)
+            dict2.setdefault(A.symbol, []).append(name)
+            dict2.setdefault(A.symbol, []).append(name + '.2')
+            print dict2
+
+
     if type(A) is not boolean.Variable:
         exp_obj_name =var_dict.get(A)
         children = []
         variable_names = []
+        variable_names_gv2 = []
         for N,i in enumerate(A):
             children.append(i)
             newvar = next(var_gen)
             variable_names.append(newvar)
-            exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list, problem)
+            variable_names_gv2.append(newvar + '.2')
+            exp_gene_string(i, var_gen, var_dict, newvar, linear_ineq_list,
+            problem, reaction_dict, var_dict2, gv2, dict2)
             indent = (N+1) * '\t'
         for j in variable_names:
             problem.prob.define(("i",j))
-        if i in variable_names:
-             print '{}Var Name: '.format(indent),variable_names(i)
+        for k in variable_names_gv2:
+            problem.prob.define(("i", k))
+        # if i in variable_names:
+        #      print '{}Var Name: '.format(indent),variable_names(i)
         print '{}Container Expression: '.format(indent), A
         print '{}Arguments: '.format(indent), children
         print '{}Variable Names: '.format(indent), variable_names
@@ -168,6 +195,12 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem):
             exp_obj_name = name
         x = bool_ineqs(A.cont_type(), A.contain(), variable_names, var_dict, exp_obj_name, problem)
         linear_ineq_list.append(x)
+
+        print '{}Container Expression: '.format(indent), A
+        print '{}Arguments: '.format(indent), children
+        print '{}Variable Names: '.format(indent), variable_names_gv2
+        y = bool_ineqs(A.cont_type(), A.contain(), variable_names_gv2, var_dict2, exp_obj_name, problem)
+        linear_ineq_list.append(y)
 
 
 def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
@@ -307,19 +340,3 @@ def rxn_info(mm, problem):
         info_list.append(problem.get_flux_var(rxn))
         info[rxn] = info_list
     return info
-
-def makefake_x(data):
-    value = []
-    for i in range(1):
-        x = {}
-        for key in data[0]:
-            #x[key] = [random.randint(0,1), random.randint(0,1)]
-            if data[3][key] == 1:
-                x[key] = [0,1]
-            elif data[3][key] == 0:
-                x[key] = [1,1]
-            elif data[3][key] == -1:
-                x[key] = [1,0]
-        value.append(MadeFluxBalance.make_obj_fun(self, data[0], data[1],
-        data[2], data [3], x))
-    print max(value)
