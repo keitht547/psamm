@@ -30,6 +30,7 @@ from ..util import MaybeRelative
 import csv
 import math
 import random
+import psamm.lpsolver
 
 
 
@@ -58,10 +59,12 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         """Run MADE implementation."""
         x = self.parse_dict()
         var_dict = {}
+
         var_dict2 = {}
         reaction_dict = {}
         gv2 = {}
         trdict = {}
+
         linear_ineq_list = []
         var_gen = ('y{}'.format(i) for i in count(1))
         problem = self.flux_setup()
@@ -73,6 +76,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print reaction_dict
         print ' '
         print gv2
+
         self.minimum_flux()
 
         if self._args.transc_file != None:
@@ -82,15 +86,8 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         mm = nat_model.create_metabolic_model()
         info_dict = rxn_info(mm, problem)
         make_obj_fun(reaction_dict, gv2, gd[2], gd[3], trdict)
-
-        for rxn, info in info_dict.iteritems():
-            vmin = info[0]
-            vmax = info[1]
-            fluxvar = info[2]
-            Y = 1
-            linear_fxn(problem, fluxvar + Y*vmax <= 0)
-            linear_fxn(problem, 0 <= fluxvar - Y*vmin)
-            #must define Y
+        add_final_constraints(info_dict, problem, reaction_dict)
+        
 
     def parse_dict(self):
         '''Parses file into a dictionary'''
@@ -166,7 +163,6 @@ def exp_gene_string(A, var_gen, var_dict, name, linear_ineq_list, problem, react
             dict2.setdefault(A.symbol, []).append(name)
             dict2.setdefault(A.symbol, []).append(name + '.2')
             print dict2
-
 
     if type(A) is not boolean.Variable:
         exp_obj_name =var_dict.get(A)
@@ -313,7 +309,8 @@ def open_file(self):
 
 
 def IDC(dicts, significance=0.05):
-    '''Generates the increasing, decreasing, constant dictionary.'''
+    '''Generates the increasing, decreasing, constant dictionary. P-values
+    less than or equal to the significance are considered significant.'''
     con1 = dicts[0]
     con2 = dicts[1]
     pval = dicts[2]
@@ -340,3 +337,19 @@ def rxn_info(mm, problem):
         info_list.append(problem.get_flux_var(rxn))
         info[rxn] = info_list
     return info
+
+
+def add_final_constraints(info_dict, problem, reaction_dict):
+    for rxn, info in info_dict.iteritems():
+        print ''
+        print rxn
+        print info
+        try:
+            vmin = info[0]
+            vmax = info[1]
+            fluxvar = info[2]
+            Y = reaction_dict[rxn]
+        except:
+            print rxn, 'is not in the reaction dictionary.'
+        linear_fxn(problem, fluxvar + Y*vmax <= 0)
+        linear_fxn(problem, 0 <= fluxvar - Y*vmin)
