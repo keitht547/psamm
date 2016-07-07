@@ -85,7 +85,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         mm = nat_model.create_metabolic_model()
 
         info_dict = rxn_info(mm, problem)
-        add_final_constraints(info_dict, problem, gv1)
+        add_final_constraints(info_dict, problem, gv1, gv2)
         make_obj_fun(gv1, gv2, gd[2], gd[3], trdict, problem)
 
 
@@ -162,7 +162,7 @@ def make_obj_fun(gv1, gv2, gp, gd, tr, problem):
         x_val = problem.get_ineq('y{}'.format(i))
         x2_val = problem.get_ineq('y{}.2'.format(i))
         print(x_val, x2_val)
-    x = ['rxn_1', 'rxn_2', 'rxn_3', 'rxn_4', 'rxn_5', 'rxn_6']
+    x = ['rxn_1', 'rxn_2', 'rxn_3', 'rxn_4', 'rxn_5']
     for j in x:
         print(j)
         print(problem.get_flux(j))
@@ -266,6 +266,8 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
     if label == 'or':
         or_group = None
         for ineq_var in RHSlist:
+            linear_fxn(problem, 0 <= yvar <= 1)
+            linear_fxn(problem, 0 <= ineq_var <= 1)
             #Individual variable inequalities
             orindiv = yvar >= ineq_var
             linear_fxn(problem, orindiv)
@@ -277,14 +279,13 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
                 or_group = ineq_var + or_group
         or_cont = yvar <= or_group
         linear_fxn(problem, or_cont)
-        linear_fxn(problem, 0 <= yvar <= 1)
-        linear_fxn(problem, 0 <= ineq_var <= 1)
         print or_cont
 
     if label == 'and':
         and_group = None
         for ineq_var in RHSlist:
-
+            linear_fxn(problem, 0 <= yvar <= 1)
+            linear_fxn(problem, 0 <= ineq_var <= 1)
             #Individual variable inequalities
             andindiv = yvar <= ineq_var
             linear_fxn(problem, andindiv)
@@ -296,8 +297,6 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
                 and_group = ineq_var + and_group
         and_cont = yvar >= and_group - (N-1)
         linear_fxn(problem, and_cont)
-        linear_fxn(problem, 0 <= yvar <= 1)
-        linear_fxn(problem, 0 <= ineq_var <= 1)
         print and_cont
 
 
@@ -355,28 +354,36 @@ def rxn_info(mm, problem):
     '''Returns Dict:{rxn id: [low bound, high bound, fluxvar lp.Expression]}'''
     info = {}
     for rxn in mm.reactions:
-        info_list = []
-        info_list.append(mm.limits.__getitem__(rxn).bounds[0])
-        info_list.append(mm.limits.__getitem__(rxn).bounds[1])
-        #   __getitem__ could be replaced by _create_bounds, or another function
-        #   could be implemented.
+        if mm.is_exchange(rxn) is False:
+            info_list = []
+            info_list.append(mm.limits.__getitem__(rxn).bounds[0])
+            info_list.append(mm.limits.__getitem__(rxn).bounds[1])
+            #   __getitem__ could be replaced by _create_bounds, or another function
+            #   could be implemented.
 
-        info_list.append(problem.get_flux_var(rxn))
-        info[rxn] = info_list
+            info_list.append(problem.get_flux_var(rxn))
+            info[rxn] = info_list
     return info
 
 
-def add_final_constraints(info_dict, problem, gv1):
+def add_final_constraints(info_dict, problem, gv1, gv2):
     for rxn, info in info_dict.iteritems():
         print ''
         print rxn
         print info
-        try:
-            vmin = info[0]
-            vmax = info[1]
-            fluxvar = info[2]
-            Y = gv1[rxn]
-        except:
-            print rxn, 'is not in the reaction dictionary.'
+
+        vmin = info[0]
+        vmax = info[1]
+        fluxvar = info[2]
+        Y = gv1[rxn]
+        # Z = gv2[rxn+'.2']
+        print 'fluxvar: {}'.format(fluxvar)
+        print 'min: {}'.format(vmin)
+        print 'max: {}'.format(vmax)
+        # print 'Z: {}'.format(Z)
+        # except:
+        #     print rxn, 'is not in the reaction dictionary.'
         linear_fxn(problem, fluxvar + Y*vmax >= 0)
         linear_fxn(problem, 0 <= fluxvar - Y*vmin)
+        # linear_fxn(problem, fluxvar + Z*vmax >= 0)
+        # linear_fxn(problem, 0 <= fluxvar - Z*vmin)
