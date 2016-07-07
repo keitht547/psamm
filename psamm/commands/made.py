@@ -75,7 +75,8 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print ' '
         print gv2
 
-        self.minimum_flux()
+        thresh_v = self.minimum_flux()
+        problem.prob.add_linear_constraints(thresh_v[1] >= thresh_v[0])
 
         if self._args.transc_file != None:
             gd = IDC(open_file(self))
@@ -84,10 +85,9 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         mm = nat_model.create_metabolic_model()
 
         info_dict = rxn_info(mm, problem)
-        make_obj_fun(reaction_dict, gv2, gd[2], gd[3], trdict)
-        add_final_constraints(info_dict, problem, reaction_dict)
-        rxn_info(mm, problem)
-        make_obj_fun(gv1, gv2, gd[2], gd[3], trdict)
+        add_final_constraints(info_dict, problem, gv1)
+        make_obj_fun(gv1, gv2, gd[2], gd[3], trdict, problem)
+
 
     def parse_dict(self):
         '''Parses file into a dictionary'''
@@ -121,15 +121,15 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         obj_flux = p.get_flux(obj_func)
         obj_var = p.get_flux_var(obj_func)
         linear_fxn(p, obj_var >= thresh.value*obj_flux)
-
         p.minimize_l1()
         Biomass = p.get_flux(obj_func)
-        print 'Ojective Reaction: {}'.format(obj_func)
-        print 'Objective flux: {}'.format(obj_flux)
-        print 'Biomass flux: {}'.format(Biomass)
+        # print 'Ojective Reaction: {}'.format(obj_func)
+        # print 'Objective flux: {}'.format(obj_flux)
+        # print 'Biomass flux: {}'.format(Biomass)
+        thresh_val = thresh.value*obj_flux
+        return(thresh_val, obj_var)
 
-
-def make_obj_fun(gv1, gv2, gp, gd, tr):
+def make_obj_fun(gv1, gv2, gp, gd, tr, problem):
     #gv1 = xi; gv2 = xi+1;
     #gp = gene probability (pvalue), gd = dictionary with increasing/decreasing expression values
     MILP_obj = 0.0
@@ -147,7 +147,26 @@ def make_obj_fun(gv1, gv2, gp, gd, tr):
             elif gv2[var[1]]- gv1[var[0]] >= 0:
                 MILP_obj = MILP_obj + (-math.log10(gp[gene]))*(gv2[var[1]]-gv1[var[0]])
     print 'Objective Function: {}'.format(MILP_obj)
-
+    problem.prob.define(('v', 'obj'))
+    obj_var = problem.get_flux_var('obj')
+    print obj_var
+    problem.prob.add_linear_constraints(obj_var == MILP_obj)
+    print obj_var
+    problem.prob.add_linear_constraints(obj_var <= 1000)
+    problem.maximize('obj')
+    Biomass = problem.get_flux('obj')
+    print 'Maxed Flux: {}'.format(Biomass)
+    y = range(1, 12)
+    for i in y:
+        print(i)
+        x_val = problem.get_ineq('y{}'.format(i))
+        x2_val = problem.get_ineq('y{}.2'.format(i))
+        print(x_val, x2_val)
+    x = ['rxn_1', 'rxn_2', 'rxn_3', 'rxn_4', 'rxn_5', 'rxn_6']
+    for j in x:
+        print(j)
+        print(problem.get_flux(j))
+    #obj_var = p.get_flux_var('obj')
 
 def exp_gene_string(A, var_gen, problem, var_dict1, var_dict2, name, gv1, gv2, tr, linear_ineq_list):
     '''Opens all containers, defines content, outputs the linear ineqs'''
@@ -258,11 +277,14 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
                 or_group = ineq_var + or_group
         or_cont = yvar <= or_group
         linear_fxn(problem, or_cont)
+        linear_fxn(problem, 0 <= yvar <= 1)
+        linear_fxn(problem, 0 <= ineq_var <= 1)
         print or_cont
 
     if label == 'and':
         and_group = None
         for ineq_var in RHSlist:
+
             #Individual variable inequalities
             andindiv = yvar <= ineq_var
             linear_fxn(problem, andindiv)
@@ -274,6 +296,8 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
                 and_group = ineq_var + and_group
         and_cont = yvar >= and_group - (N-1)
         linear_fxn(problem, and_cont)
+        linear_fxn(problem, 0 <= yvar <= 1)
+        linear_fxn(problem, 0 <= ineq_var <= 1)
         print and_cont
 
 
@@ -342,7 +366,7 @@ def rxn_info(mm, problem):
     return info
 
 
-def add_final_constraints(info_dict, problem, reaction_dict):
+def add_final_constraints(info_dict, problem, gv1):
     for rxn, info in info_dict.iteritems():
         print ''
         print rxn
@@ -351,8 +375,8 @@ def add_final_constraints(info_dict, problem, reaction_dict):
             vmin = info[0]
             vmax = info[1]
             fluxvar = info[2]
-            Y = reaction_dict[rxn]
+            Y = gv1[rxn]
         except:
             print rxn, 'is not in the reaction dictionary.'
-        linear_fxn(problem, fluxvar + Y*vmax <= 0)
+        linear_fxn(problem, fluxvar + Y*vmax >= 0)
         linear_fxn(problem, 0 <= fluxvar - Y*vmin)
