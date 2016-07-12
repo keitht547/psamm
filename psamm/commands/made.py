@@ -91,6 +91,9 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         make_obj_fun(var_ineqvar1, var_ineqvar2, gene_data[2], gene_data[3], gvdict, problem)
 
 
+
+
+
     def parse_dict(self):
         ''' Using the model file,returns a dictionary with reactions as keys and
         their associated gene logic (i.e. (gene 1 and gene 2) or gene 3) as
@@ -140,6 +143,7 @@ def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, probl
     var_ineqvar1 = xi, ; var_ineqvar2 = xi+1, var_ineqvar2; gene_pval = gene probability (pvalue),
     gene_data = dictionary with increasing/decreasing expression values'''
     MILP_obj = 0.0
+    # test = 0.0
     for gene, var in gvdict.iteritems():
         print gene, var
         wp = gene_pval[gene]
@@ -150,17 +154,28 @@ def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, probl
             MILP_obj = MILP_obj + (-math.log10(gene_pval[gene]))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
         elif gene_data[gene] == 0:
             if var_ineqvar2[var[1]]- var_ineqvar1[var[0]] <= 0:
-                MILP_obj = MILP_obj + (-math.log10(gene_pval[gene]))*(-(var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
+                MILP_obj = MILP_obj - (-math.log10(gene_pval[gene]))*(-(var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
             elif var_ineqvar2[var[1]]- var_ineqvar1[var[0]] >= 0:
-                MILP_obj = MILP_obj + (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]]-var_ineqvar1[var[0]])
+                MILP_obj = MILP_obj - (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]]-var_ineqvar1[var[0]])
     print 'Objective Function: {}'.format(MILP_obj)
+
+    y = range(1, 12)
+    for i in y:
+        y_val = problem.get_ineq_var('y{}'.format(i))
+        y2_val = problem.get_ineq_var('y{}.2'.format(i))
+
+        linear_fxn(problem, y_val <= 1)
+        linear_fxn(problem, 0 <= y_val)
+        linear_fxn(problem, y2_val <= 1)
+        linear_fxn(problem, 0 <= y2_val)
+
 
     problem.prob.define(('v', 'obj'))
     obj_var = problem.get_flux_var('obj')
     problem.prob.add_linear_constraints(obj_var == MILP_obj)
-    print obj_var
-    problem.prob.add_linear_constraints(obj_var <= 1000)
-    problem.minimize_l1()
+    # print obj_var
+    problem.prob.add_linear_constraints(obj_var <= 50000)
+    problem.maximize('obj')
     obj_flux = problem.get_flux('obj')
 
     print 'Maxed Flux: {}'.format(obj_flux)
@@ -185,18 +200,22 @@ def exp_gene_string(exp_obj, var_gen, problem, new_var_id, gene_var1, gene_var2,
     problem.prob.define(("i", new_var_id))
     new_var_ineq1 = problem.get_ineq_var(new_var_id)
     var_ineqvar1[new_var_id] = new_var_ineq1
+    0<= var_ineqvar1[new_var_id] <=1
+    linear_fxn(problem, 0<= var_ineqvar1[new_var_id] <=1)
 
     gene_var2[exp_obj] = new_var_id +'.2'
     problem.prob.define(("i", new_var_id +'.2'))
     new_var_ineq2 = problem.get_ineq_var(new_var_id + '.2')
     var_ineqvar2[new_var_id + '.2'] = new_var_ineq2
+    0<= var_ineqvar2[new_var_id+ '.2'] <=1
+    linear_fxn(problem, 0<= var_ineqvar2[new_var_id+ '.2'] <=1)
 
     if type(exp_obj) is boolean.Variable:
-            print(exp_obj)
-            str(exp_obj)
-            gvdict.setdefault(exp_obj.symbol, []).append(new_var_id)
-            gvdict.setdefault(exp_obj.symbol, []).append(new_var_id + '.2')
-            print gvdict
+        print(exp_obj)
+        str(exp_obj)
+        gvdict.setdefault(exp_obj.symbol, []).append(new_var_id)
+        gvdict.setdefault(exp_obj.symbol, []).append(new_var_id + '.2')
+        print gvdict
 
     if type(exp_obj) is not boolean.Variable:
         exp_obj_name =gene_var1.get(exp_obj)
@@ -313,6 +332,7 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
 
 def linear_fxn(lpp, linear_con):
     '''For adding linear inequalities as constraints in the LP problem specified.'''
+    print 'nimei: {}'.format(linear_con)
     lpp.prob.add_linear_constraints(linear_con)
     # lpp = linear programming problem, linear_con = linear constraint
 
