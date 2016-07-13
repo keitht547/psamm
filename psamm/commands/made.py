@@ -31,6 +31,7 @@ import csv
 import math
 import random
 import psamm.lpsolver
+from psamm.lpsolver import lp
 
 
 
@@ -64,8 +65,14 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         var_ineqvar2 = {} #Dictionary; key:value = new variable ids:their defined inequality variable, second set
         gvdict = {} #Dictionary; key:value = gene_id:defined variable ids from both sets (each key has 2 values)
 
+        nat_model = self._model
+        biomass_fun = nat_model.get_biomass_reaction()
         var_gen = ('y{}'.format(i) for i in count(1))
-        problem = self.flux_setup()
+        problem_mm = self.flux_setup()
+        mm = problem_mm[1]
+        problem = problem_mm[0]
+        thresh_v = self.minimum_flux()
+        problem.prob.add_linear_constraints(problem.get_flux_var(biomass_fun) >= thresh_v[0])
         for rxn_id, GPR in parser.iteritems():
             e = boolean.Expression(GPR)
             exp_gene_string(e.base_tree(), var_gen, problem, rxn_id, gene_var1, gene_var2, var_ineqvar1, var_ineqvar2, gvdict)
@@ -75,22 +82,14 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print ' '
         print var_ineqvar2
 
-
-        thresh_v = self.minimum_flux()
-        problem.prob.add_linear_constraints(thresh_v[1] >= thresh_v[0])
-
         if self._args.transc_file != None:
             gene_data = IDC(open_file(self))
 
         nat_model = self._model
-        mm = nat_model.create_metabolic_model()
-
 
         info_dict = rxn_info(mm, problem)
         add_final_constraints(info_dict, problem, var_ineqvar1, var_ineqvar2)
         make_obj_fun(var_ineqvar1, var_ineqvar2, gene_data[2], gene_data[3], gvdict, problem)
-
-
 
 
 
@@ -113,7 +112,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         solver = self._get_solver(integer=True)
         mm = mm_model.copy()
         p = fluxanalysis.FluxBalanceProblem(mm, solver)
-        return p
+        return p, mm_model
 
 
     def minimum_flux(self):
@@ -127,47 +126,47 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
         p.maximize(obj_func)
         obj_flux = p.get_flux(obj_func)
-        obj_var = p.get_flux_var(obj_func)
-        linear_fxn(p, obj_var >= thresh.value*obj_flux)
-        p.minimize_l1()
-        Biomass = p.get_flux(obj_func)
+        # obj_var = p.get_flux_var(obj_func)
+        # p.prob.add_linear_constraints(obj_var >= thresh.value*obj_flux)
+        # p.minimize_l1()
+        # Biomass = p.get_flux(obj_func)
 
-        # print 'Ojective Reaction: {}'.format(obj_func)
-        # print 'Objective flux: {}'.format(obj_flux)
-        # print 'Biomass flux: {}'.format(Biomass)
         thresh_val = thresh.value*obj_flux
-        return(thresh_val, obj_var)
+        return(thresh_val, 'obj_var')
 
 def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, problem):
     '''Constructs the MADE objective funtion from dictionaries of LP variables.
     var_ineqvar1 = xi, ; var_ineqvar2 = xi+1, var_ineqvar2; gene_pval = gene probability (pvalue),
     gene_data = dictionary with increasing/decreasing expression values'''
     MILP_obj = 0.0
-    # test = 0.0
+    I = 0.0
+    D = 0.0
+    C = 0.0
+
     for gene, var in gvdict.iteritems():
         print gene, var
         wp = gene_pval[gene]
         print type(gene_pval[gene])
+        # if gene_data[gene] == 1:
+        #     MILP_obj = MILP_obj + (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]] - var_ineqvar1[var[0]])
+        # elif gene_data[gene] == -1:
+        #     MILP_obj = MILP_obj + (-math.log10(gene_pval[gene]))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
+        # elif gene_data[gene] == 0:
+        #     if var_ineqvar2[var[1]]- var_ineqvar1[var[0]] <= 0:
+        #         MILP_obj = MILP_obj - (-math.log10(gene_pval[gene]))*(-(var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
+        #     elif var_ineqvar2[var[1]]- var_ineqvar1[var[0]] >= 0:
+        #         MILP_obj = MILP_obj - (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]]-var_ineqvar1[var[0]])
+
         if gene_data[gene] == 1:
-            MILP_obj = MILP_obj + (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]] - var_ineqvar1[var[0]])
+            I = I + (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]] - var_ineqvar1[var[0]])
         elif gene_data[gene] == -1:
-            MILP_obj = MILP_obj + (-math.log10(gene_pval[gene]))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
+            D = D + (-math.log10(gene_pval[gene]))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
         elif gene_data[gene] == 0:
-            if var_ineqvar2[var[1]]- var_ineqvar1[var[0]] <= 0:
-                MILP_obj = MILP_obj - (-math.log10(gene_pval[gene]))*(-(var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
-            elif var_ineqvar2[var[1]]- var_ineqvar1[var[0]] >= 0:
-                MILP_obj = MILP_obj - (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]]-var_ineqvar1[var[0]])
+            C = C + (-math.log10(gene_pval[gene]))*((var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
+        MILP_obj = I + D - C
+
     print 'Objective Function: {}'.format(MILP_obj)
 
-    y = range(1, 12)
-    for i in y:
-        y_val = problem.get_ineq_var('y{}'.format(i))
-        y2_val = problem.get_ineq_var('y{}.2'.format(i))
-
-        linear_fxn(problem, y_val <= 1)
-        linear_fxn(problem, 0 <= y_val)
-        linear_fxn(problem, y2_val <= 1)
-        linear_fxn(problem, 0 <= y2_val)
 
 
     problem.prob.define(('v', 'obj'))
@@ -177,14 +176,24 @@ def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, probl
     problem.prob.add_linear_constraints(obj_var <= 50000)
     problem.maximize('obj')
     obj_flux = problem.get_flux('obj')
+    problem.prob.add_linear_constraints(obj_var == obj_flux)
+    problem.maximize('rxn_1')
+
 
     print 'Maxed Flux: {}'.format(obj_flux)
-    y = range(1, 12)
+    y = range(2, 12)
+    z = range(1,2)
     for i in y:
         print(i)
         x_val = problem.get_ineq('y{}'.format(i))
         x2_val = problem.get_ineq('y{}.2'.format(i))
         print(x_val, x2_val)
+    for j in z:
+        rval = problem.get_ineq('rxn_{}'.format(j))
+        rval2 = problem.get_ineq('rxn_{}.2'.format(j))
+        print(j)
+        print(rval, rval2)
+
     x = ['rxn_1', 'rxn_2', 'rxn_3', 'rxn_4', 'rxn_5']
     for j in x:
         print(j)
@@ -197,18 +206,15 @@ def exp_gene_string(exp_obj, var_gen, problem, new_var_id, gene_var1, gene_var2,
     functions.  Is recursive. No output.'''
 
     gene_var1[exp_obj] = new_var_id
-    problem.prob.define(("i", new_var_id))
+    problem.prob.define(("i", new_var_id), types = lp.VariableType.Binary)
     new_var_ineq1 = problem.get_ineq_var(new_var_id)
     var_ineqvar1[new_var_id] = new_var_ineq1
-    0<= var_ineqvar1[new_var_id] <=1
-    linear_fxn(problem, 0<= var_ineqvar1[new_var_id] <=1)
 
     gene_var2[exp_obj] = new_var_id +'.2'
-    problem.prob.define(("i", new_var_id +'.2'))
+    problem.prob.define(("i", new_var_id +'.2'), types = lp.VariableType.Binary)
     new_var_ineq2 = problem.get_ineq_var(new_var_id + '.2')
     var_ineqvar2[new_var_id + '.2'] = new_var_ineq2
-    0<= var_ineqvar2[new_var_id+ '.2'] <=1
-    linear_fxn(problem, 0<= var_ineqvar2[new_var_id+ '.2'] <=1)
+
 
     if type(exp_obj) is boolean.Variable:
         print(exp_obj)
@@ -230,9 +236,9 @@ def exp_gene_string(exp_obj, var_gen, problem, new_var_id, gene_var1, gene_var2,
             exp_gene_string(i, var_gen, problem, newvar, gene_var1, gene_var2, var_ineqvar1, var_ineqvar2, gvdict)
             indent = (N+1) * '\t'
         for name1 in new_var_names1:
-            problem.prob.define(("i",name1))
+            problem.prob.define(("i",name1),types = lp.VariableType.Binary)
         for name2 in new_var_names2:
-            problem.prob.define(("i", name2))
+            problem.prob.define(("i", name2), types = lp.VariableType.Binary)
 
         print '{}Container Expression: '.format(indent), exp_obj
         print '{}Arguments: '.format(indent), arguments
@@ -247,8 +253,7 @@ def exp_gene_string(exp_obj, var_gen, problem, new_var_id, gene_var1, gene_var2,
         print '{}Container Expression: '.format(indent), exp_obj
         print '{}Arguments: '.format(indent), arguments
         print '{}Variable Names: '.format(indent), new_var_names2
-        y = bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names2, gene_var2,
-        exp_obj_name, problem)
+        y = bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names2, gene_var2, exp_obj_name, problem)
 
 
 def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
@@ -366,12 +371,18 @@ def IDC(dicts, significance=0.05):
     con2 = dicts[1]
     pval = dicts[2]
     diff = {}
+    print 'here'
+    print con1
+    print con2
+    print pval
+
     for key in con1:
-        if con2[key]-con1[key] == 0 or pval[key] > significance:
+
+        if con2[key]-con1[key] == 0:
             diff[key] = 0
         else:
             diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
-
+    print diff
     return con1,con2,pval,diff
 
 
@@ -408,7 +419,7 @@ def add_final_constraints(info_dict, problem, var_ineqvar1, var_ineqvar2):
         print 'max: {}'.format(vmax)
         print 'Z: {}'.format(Z)
 
-        linear_fxn(problem, fluxvar + (1-Y)*vmax <= vmax)
-        linear_fxn(problem, fluxvar + (1-Y)*vmin >= vmin)
+        # linear_fxn(problem, fluxvar + (1-Y)*vmax <= vmax)
+        # linear_fxn(problem, fluxvar + (1-Y)*vmin >= vmin)
         linear_fxn(problem, fluxvar + (1-Z)*vmax <= vmax)
         linear_fxn(problem, fluxvar + (1-Z)*vmin >= vmin)
