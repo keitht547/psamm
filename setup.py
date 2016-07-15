@@ -66,6 +66,7 @@ setup(
             'search = psamm.commands.search:SearchCommand',
             'tableexport = psamm.commands.tableexport:ExportTableCommand',
             'made = psamm.commands.made:MadeFluxBalance',
+            'eflux = psamm.commands.eflux:eFluxBalance',
         ]
     },
 
