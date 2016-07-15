@@ -53,7 +53,11 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             type=MaybeRelative, default = MaybeRelative('100%'), nargs='?')
         parser.add_argument('--transc-file', help='Enter path to transcriptomic data file',
         metavar='FILE')
+        parser.add_argument(
+            '--fva', help='Enable FVA',
+            action='store_true')
         super(MadeFluxBalance, cls).init_parser(parser)
+
 
 
     def run(self):
@@ -72,25 +76,29 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         mm = problem_mm[1]
         problem = problem_mm[0]
         thresh_v = self.minimum_flux()
-        problem.prob.add_linear_constraints(problem.get_flux_var(biomass_fun) >= thresh_v[0])
+        linear_constraints(problem, problem.get_flux_var(biomass_fun) >= thresh_v[0])
         for rxn_id, GPR in parser.iteritems():
             e = boolean.Expression(GPR)
             exp_gene_string(e.base_tree(), var_gen, problem, rxn_id, gene_var1, gene_var2, var_ineqvar1, var_ineqvar2, gvdict)
-            print (rxn_id,GPR)
-            print ' '
-        print var_ineqvar1
-        print ' '
-        print var_ineqvar2
+
 
         if self._args.transc_file != None:
             gene_data = IDC(open_file(self))
-
         nat_model = self._model
 
         info_dict = rxn_info(mm, problem)
         add_final_constraints(info_dict, problem, var_ineqvar1, var_ineqvar2)
-        make_obj_fun(var_ineqvar1, var_ineqvar2, gene_data[2], gene_data[3], gvdict, problem)
+        final = make_obj_fun(var_ineqvar1, var_ineqvar2, gene_data[2], gene_data[3], gvdict, problem)
 
+        biomass_function = nat_model.get_biomass_reaction()
+        for reaction in nat_model.parse_reactions():
+            if self._args.fva is True:
+                print('{}\t{}\t{}\t{}\t{}'.format(reaction.id, final.flux_bound(reaction.id, -1),
+                final.flux_bound(reaction.id, -1), str(reaction.equation), reaction.genes))
+            else:
+                print('{}\t{}\t{}\t{}'.format(reaction.id, final.get_flux(reaction.id), str(reaction.equation), reaction.genes))
+
+        print('Objective Flux: {}'.format(final.get_flux(biomass_function)))
 
 
     def parse_dict(self):
@@ -99,7 +107,8 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         values of type str.'''
         gene_dict = {}
         for i in self._model.parse_reactions():
-            gene_dict[i.id] = i.genes
+            if i.genes is not None:
+                gene_dict[i.id] = i.genes
         return gene_dict
 
 
@@ -126,78 +135,41 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
         p.maximize(obj_func)
         obj_flux = p.get_flux(obj_func)
-        # obj_var = p.get_flux_var(obj_func)
-        # p.prob.add_linear_constraints(obj_var >= thresh.value*obj_flux)
-        # p.minimize_l1()
-        # Biomass = p.get_flux(obj_func)
-
+        obj_var = p.get_flux_var(obj_func)
         thresh_val = thresh.value*obj_flux
         return(thresh_val, 'obj_var')
+
 
 def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, problem):
     '''Constructs the MADE objective funtion from dictionaries of LP variables.
     var_ineqvar1 = xi, ; var_ineqvar2 = xi+1, var_ineqvar2; gene_pval = gene probability (pvalue),
     gene_data = dictionary with increasing/decreasing expression values'''
     MILP_obj = 0.0
-    I = 0.0
-    D = 0.0
-    C = 0.0
+    I = 0.0 # Increasing gene expression
+    D = 0.0 # Decreasing gene expression
+    C = 0.0 # Constant gene expression
 
     for gene, var in gvdict.iteritems():
-        print gene, var
-        wp = gene_pval[gene]
-        print type(gene_pval[gene])
-        # if gene_data[gene] == 1:
-        #     MILP_obj = MILP_obj + (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]] - var_ineqvar1[var[0]])
-        # elif gene_data[gene] == -1:
-        #     MILP_obj = MILP_obj + (-math.log10(gene_pval[gene]))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
-        # elif gene_data[gene] == 0:
-        #     if var_ineqvar2[var[1]]- var_ineqvar1[var[0]] <= 0:
-        #         MILP_obj = MILP_obj - (-math.log10(gene_pval[gene]))*(-(var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
-        #     elif var_ineqvar2[var[1]]- var_ineqvar1[var[0]] >= 0:
-        #         MILP_obj = MILP_obj - (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]]-var_ineqvar1[var[0]])
+        if gene in gene_pval.keys():
+            wp = gene_pval[gene]
+            if gene_data[gene] == 1:
+                I = I + (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]] - var_ineqvar1[var[0]])
+            elif gene_data[gene] == -1:
+                D = D + (-math.log10(gene_pval[gene]))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
+            elif gene_data[gene] == 0:
+                C = C + (-math.log10(gene_pval[gene]))*((var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
+            MILP_obj = I + D - C
 
-        if gene_data[gene] == 1:
-            I = I + (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]] - var_ineqvar1[var[0]])
-        elif gene_data[gene] == -1:
-            D = D + (-math.log10(gene_pval[gene]))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
-        elif gene_data[gene] == 0:
-            C = C + (-math.log10(gene_pval[gene]))*((var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
-        MILP_obj = I + D - C
+    problem.prob.define(('v', 'object'))
+    obj_var = problem.get_flux_var('object')
+    linear_constraints(problem, obj_var == MILP_obj)
+    linear_constraints(problem, obj_var <= 5000)
+    problem.maximize('object')
+    obj_flux = problem.get_flux('object')
 
-    print 'Objective Function: {}'.format(MILP_obj)
-
-
-
-    problem.prob.define(('v', 'obj'))
-    obj_var = problem.get_flux_var('obj')
-    problem.prob.add_linear_constraints(obj_var == MILP_obj)
-    # print obj_var
-    problem.prob.add_linear_constraints(obj_var <= 50000)
-    problem.maximize('obj')
-    obj_flux = problem.get_flux('obj')
-    problem.prob.add_linear_constraints(obj_var == obj_flux)
+    linear_constraints(problem, obj_var == obj_flux)
     problem.maximize('rxn_1')
-
-
-    print 'Maxed Flux: {}'.format(obj_flux)
-    y = range(2, 12)
-    z = range(1,2)
-    for i in y:
-        print(i)
-        x_val = problem.get_ineq('y{}'.format(i))
-        x2_val = problem.get_ineq('y{}.2'.format(i))
-        print(x_val, x2_val)
-    for j in z:
-        rval = problem.get_ineq('rxn_{}'.format(j))
-        rval2 = problem.get_ineq('rxn_{}.2'.format(j))
-        print(j)
-        print(rval, rval2)
-
-    x = ['rxn_1', 'rxn_2', 'rxn_3', 'rxn_4', 'rxn_5']
-    for j in x:
-        print(j)
-        print(problem.get_flux(j))
+    return(problem)
 
 
 def exp_gene_string(exp_obj, var_gen, problem, new_var_id, gene_var1, gene_var2, var_ineqvar1, var_ineqvar2, gvdict):
@@ -217,11 +189,10 @@ def exp_gene_string(exp_obj, var_gen, problem, new_var_id, gene_var1, gene_var2,
 
 
     if type(exp_obj) is boolean.Variable:
-        print(exp_obj)
         str(exp_obj)
         gvdict.setdefault(exp_obj.symbol, []).append(new_var_id)
         gvdict.setdefault(exp_obj.symbol, []).append(new_var_id + '.2')
-        print gvdict
+
 
     if type(exp_obj) is not boolean.Variable:
         exp_obj_name =gene_var1.get(exp_obj)
@@ -240,20 +211,12 @@ def exp_gene_string(exp_obj, var_gen, problem, new_var_id, gene_var1, gene_var2,
         for name2 in new_var_names2:
             problem.prob.define(("i", name2), types = lp.VariableType.Binary)
 
-        print '{}Container Expression: '.format(indent), exp_obj
-        print '{}Arguments: '.format(indent), arguments
-        print '{}Variable Names: '.format(indent), new_var_names1
-
         if exp_obj_name is None:
             exp_obj_name = new_var_id
 
-        x = bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names1, gene_var1, exp_obj_name, problem)
+        bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names1, gene_var1, exp_obj_name, problem)
 
-
-        print '{}Container Expression: '.format(indent), exp_obj
-        print '{}Arguments: '.format(indent), arguments
-        print '{}Variable Names: '.format(indent), new_var_names2
-        y = bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names2, gene_var2, exp_obj_name, problem)
+        bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names2, gene_var2, exp_obj_name, problem)
 
 
 def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
@@ -275,22 +238,10 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
     elif isinstance(ctype, boolean.Variable):
         raise ValueError('Argument contains only variables, no operators')
 
-    x = names # A list of the unicode characters of the variables in the expression
     if ctype in dict_var.keys():
         Y = dict_var[ctype]
     else:
         Y = 'Y'
-
-    # Used for outputting a string of inequalities
-    # ineq = [] #The list of inequalities to be returned
-    # ineq1 = ' + '.join(x) # The first inequality
-    # ineq.append(Y+relation1+ineq1+modify)
-    # for j in range(N):
-    #     if obj_name is not None:
-    #         ineq.append(obj_name+relation2+x[j])
-    #     else:
-    #          ineq.append(obj_name+relation2+x[j])# Subsequent inequalities
-    # print ineq
 
     yvar = problem.get_ineq_var(Y)
     RHSlist = []
@@ -301,45 +252,40 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
     if label == 'or':
         or_group = None
         for ineq_var in RHSlist:
-            linear_fxn(problem, 0 <= yvar <= 1)
-            linear_fxn(problem, 0 <= ineq_var <= 1)
+            linear_constraints(problem, 0 <= yvar <= 1)
+            linear_constraints(problem, 0 <= ineq_var <= 1)
             #Individual variable inequalities
             orindiv = yvar >= ineq_var
-            linear_fxn(problem, orindiv)
-            print 'OR Constraint: ', orindiv
+            linear_constraints(problem, orindiv)
             #Container inequalities
             if or_group is None:
                 or_group = ineq_var
             else:
                 or_group = ineq_var + or_group
         or_cont = yvar <= or_group
-        linear_fxn(problem, or_cont)
-        print 'OR Constraint: ', or_cont
+        linear_constraints(problem, or_cont)
 
     if label == 'and':
         and_group = None
         for ineq_var in RHSlist:
-            linear_fxn(problem, 0 <= yvar <= 1)
-            linear_fxn(problem, 0 <= ineq_var <= 1)
+            linear_constraints(problem, 0 <= yvar <= 1)
+            linear_constraints(problem, 0 <= ineq_var <= 1)
             #Individual variable inequalities
             andindiv = yvar <= ineq_var
-            linear_fxn(problem, andindiv)
-            print 'AND Constraint: ', andindiv
+            linear_constraints(problem, andindiv)
+
             #Container inequalities
             if and_group is None:
                 and_group = ineq_var
             else:
                 and_group = ineq_var + and_group
         and_cont = yvar >= and_group - (N-1)
-        linear_fxn(problem, and_cont)
-        print 'AND Constraint: ', and_cont
+        linear_constraints(problem, and_cont)
 
 
-def linear_fxn(lpp, linear_con):
-    '''For adding linear inequalities as constraints in the LP problem specified.'''
-    print 'nimei: {}'.format(linear_con)
-    lpp.prob.add_linear_constraints(linear_con)
-    # lpp = linear programming problem, linear_con = linear constraint
+def linear_constraints(LPproblem, linear_constraint):
+    '''For easily adding linear constraints to the LP problem.'''
+    LPproblem.prob.add_linear_constraints(linear_constraint)
 
 
 def open_file(self):
@@ -357,8 +303,8 @@ def open_file(self):
             con1_dict[row[0]] = float(row[1])
             con2_dict[row[0]] = float(row[2])
             pval_dict[row[0]] = float(row[3])
-        except ValueError:
-            print 'Cannot convert string to float',row[1], row[2], row[3]
+        except:
+            print 
 
     return con1_dict, con2_dict, pval_dict
 
@@ -371,18 +317,15 @@ def IDC(dicts, significance=0.05):
     con2 = dicts[1]
     pval = dicts[2]
     diff = {}
-    print 'here'
-    print con1
-    print con2
-    print pval
 
     for key in con1:
-
-        if con2[key]-con1[key] == 0:
+        if pval[key] > significance:
             diff[key] = 0
         else:
-            diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
-    print diff
+            if con2[key]-con1[key] == 0:
+                diff[key] = 0
+            else:
+                diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
     return con1,con2,pval,diff
 
 
@@ -396,8 +339,6 @@ def rxn_info(mm, problem):
             info_list = []
             info_list.append(mm.limits.__getitem__(rxn).bounds[0])
             info_list.append(mm.limits.__getitem__(rxn).bounds[1])
-            #   __getitem__ could be replaced by _create_bounds, or another function
-            #   could be implemented.
             info_list.append(problem.get_flux_var(rxn))
             info[rxn] = info_list
     return info
@@ -408,18 +349,14 @@ def add_final_constraints(info_dict, problem, var_ineqvar1, var_ineqvar2):
     of each condition.  Adds constraints connecting flux variables, reactions,
     and their flux bounds.'''
     for rxn, info in info_dict.iteritems():
-        print ''
+
         vmin = info[0]
         vmax = info[1]
         fluxvar = info[2]
         Y = var_ineqvar1[rxn]
         Z = var_ineqvar2[rxn+'.2']
-        print 'fluxvar: {}'.format(fluxvar)
-        print 'min: {}'.format(vmin)
-        print 'max: {}'.format(vmax)
-        print 'Z: {}'.format(Z)
 
-        # linear_fxn(problem, fluxvar + (1-Y)*vmax <= vmax)
-        # linear_fxn(problem, fluxvar + (1-Y)*vmin >= vmin)
-        linear_fxn(problem, fluxvar + (1-Z)*vmax <= vmax)
-        linear_fxn(problem, fluxvar + (1-Z)*vmin >= vmin)
+        # linear_constraints(problem, fluxvar + (1-Y)*vmax <= vmax)
+        # linear_constraints(problem, fluxvar + (1-Y)*vmin >= vmin)
+        linear_constraints(problem, fluxvar + (1-Z)*vmax <= vmax)
+        linear_constraints(problem, fluxvar + (1-Z)*vmin >= vmin)
