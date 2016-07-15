@@ -29,10 +29,10 @@ from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
 import csv
-import math
-import random
 import psamm.lpsolver
 from psamm.lpsolver import lp
+from made import open_file
+
 
 
 
@@ -50,8 +50,8 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         parser.add_argument('reaction', help='Reaction to maximize', nargs='?')
         parser.add_argument(
             '--flux-threshold',
-            help='Enter maximum objective flux as a decimal or percent',
-            type=MaybeRelative, default = MaybeRelative('100%'), nargs='?')
+            help='Enter minimum objective flux as a decimal or percent',
+            type=MaybeRelative, default = MaybeRelative('90%'), nargs='?')
         parser.add_argument('--transc-file', help='Enter path to transcriptomic data file',
         metavar='FILE')
         super(eFluxBalance, cls).init_parser(parser)
@@ -60,3 +60,110 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
     def run(self):
         """Run MADE implementation."""
         print 'yay'
+        data = open_file(self)
+        rxn_genelogic = self.reaction_logic()
+        minimum = self.minimum_flux()
+        problem, mm =  self.flux_setup()
+        bounds = self.reaction_bounds(mm, problem)
+        biomassflux = self.min_biomass(problem)
+
+        print ''
+        print 'Transcriptomic Data: ', data
+        print ''
+        print 'Reaction Gene Logic: ', rxn_genelogic
+        print ''
+        print 'Biomass threshold 90%: ', minimum
+        print ''
+        print 'Bounds:', bounds
+        print ''
+        print 'Biomass: ', biomassflux
+
+
+    def reaction_logic(self):
+        ''' Using the model file,returns a dictionary with reactions as keys and
+        their associated gene logic (i.e. (gene 1 and gene 2) or gene 3) as
+        values of type str.'''
+        gene_dict = {}
+        for i in self._model.parse_reactions():
+            gene_dict[i.id] = i.genes
+        return gene_dict
+
+
+    def reaction_bounds(self, mm, problem):
+        '''Obtains reaction bounds, defines LP variables for all metabolic and
+        exchange reactions, and returns a dictionary with all the bounds.'''
+        bounds = {}
+        for rxn in mm.reactions:
+            bounds[rxn] = rxn_bounds(mm, rxn)
+            problem.prob.define(('v', rxn))  #defines LP variables for all reactions
+        return bounds
+
+
+    def flux_setup(self):
+        '''Creates a flux balance problem using the model files in the current
+        directory.'''
+        model_path = self._model
+        nat_model = self._model
+        mm_model = nat_model.create_metabolic_model()
+        solver = self._get_solver(integer=True)
+        mm = mm_model.copy()
+        p = fluxanalysis.FluxBalanceProblem(mm, solver)
+        return p, mm_model
+
+
+    def minimum_flux(self):
+        '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
+        thresh = self._args.flux_threshold
+        solver = self._get_solver(integer=True)
+        mm_model = self._mm
+        nat_model = self._model
+        obj_func = nat_model.get_biomass_reaction()
+        p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
+        p.maximize(obj_func)
+        obj_flux = p.get_flux(obj_func)
+        thresh_val = thresh.value*obj_flux
+        return thresh_val
+
+    def min_biomass(self, problem):
+        '''Applies biomass minimum of 90% (defined in the default in init_parser)
+        to the LP problem. Applies arbitrary cap of 2000. Maximizes the biomass.'''
+        biomass = self._model.get_biomass_reaction()
+        threshold = self.minimum_flux()
+        problem.prob.define(('v', biomass))
+        obj = problem.get_flux_var(biomass)
+        problem.prob.add_linear_constraints(obj <= 2000)
+        problem.prob.add_linear_constraints(threshold <= obj)
+        problem.maximize(biomass)
+        return biomass, problem.get_flux(biomass)
+
+
+def unpack(container, data):
+    '''Recursively unpacks gene logic and returns the 'expression' of the
+    reaction taken as an argument.  Takes a reaction boolean expression and
+    the trancriptomic data.'''
+    if isinstance(container, boolean.Variable):
+        print 'variable', data[str(container)]
+        return data[str(container)]
+    else:
+        if isinstance(str(container), boolean.Or):
+            x = []
+            for i in container:
+                x.append(unpack(i, data))
+            print 'Or', sum(x)
+            return sum(x)
+        elif isinstance(str(container), boolean.And):
+            x = []
+            for i in container:
+                x.append(unpack(i, data))
+            print 'And', min(x)
+            return min(x)
+
+def rxn_bounds(mm, rxn):
+    '''Takes a metabolic model, a reaction and an LP Problem.
+    Returns (low bound, high bound'''
+
+    lower_bound = mm.limits._create_bounds(rxn).bounds[0]
+    upper_bound = mm.limits._create_bounds(rxn).bounds[1]
+        #   __getitem__ could be replaced by _create_bounds, or another function
+        #   could be implemented.
+    return lower_bound, upper_bound
