@@ -25,6 +25,8 @@ import math
 from itertools import count
 from psamm.expression import boolean
 
+from six import iteritems
+
 from ..command import SolverCommandMixin, MetabolicMixin, Command, CommandError
 from .. import fluxanalysis
 from ..util import MaybeRelative
@@ -62,19 +64,18 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print ''
         print 'RUN STARTS HERE'
         print ''
+
         data = open_file(self)
         rxn_genelogic = self.gene_logic()
         minimum = self.minimum_flux()
         problem, mm =  self.flux_setup()
+
         bounds = self.reaction_bounds(mm, problem)
         biomassflux = self.min_biomass(problem)
-        print ''
-        for rxn, logic in rxn_genelogic.iteritems():
-            exp = boolean.Expression(logic)
-            print rxn
-            Xlj = unpack(exp.base_tree(), data[0])
-            print 'Xlj = ', Xlj
-            print ''
+        ex_bounds = exchange_bounds(mm, problem)
+        rxn_exp, x = reaction_expression(rxn_genelogic, data)
+        gene_bounds(mm, rxn_exp, x)
+        
 
         print ''
         print 'Transcriptomic Data: ', data
@@ -87,7 +88,12 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print ''
         print 'Biomass: ', biomassflux
         print ''
-        exchange_bounds(mm, problem)
+        print 'A0, B0: ', ex_bounds
+        print ''
+        print 'Reaction Expression: ', rxn_exp
+        print ''
+        print
+
 
 
     def gene_logic(self):
@@ -102,14 +108,19 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
     def reaction_bounds(self, mm, problem):
         '''Obtains reaction bounds, defines LP variables for all metabolic and
-        exchange reactions, and returns a dictionary with all the bounds.'''
+        exchange reactions, applies constraints, and returns a dictionary with
+        all the bounds.'''
         bounds = {}
         for rxn in mm.reactions:
-            bounds[rxn] = rxn_bounds(mm, rxn)
+            upper_bound = mm.limits[rxn].upper
+            lower_bound = mm.limits[rxn].lower
             problem.prob.define(('v', rxn)) #defines LP variables for all reactions
             fluxvar = problem.get_flux_var(rxn)
-            problem.prob.add_linear_constraints(fluxvar <= bounds[rxn][1], fluxvar >= bounds[rxn][0])
+            problem.prob.add_linear_constraints(fluxvar <= upper_bound, fluxvar
+            >= lower_bound)
+            bounds[rxn] = upper_bound, lower_bound
         return bounds
+
 
 
     def flux_setup(self):
@@ -137,14 +148,14 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         thresh_val = thresh.value*obj_flux
         return thresh_val
 
+
     def min_biomass(self, problem):
         '''Applies biomass minimum of 90% (defined in the default in init_parser)
-        to the LP problem. Applies arbitrary cap of 2000. Maximizes the biomass.'''
+        to the LP problem. Maximizes the biomass.'''
         biomass = self._model.get_biomass_reaction()
+        print biomass , 'BIOMASS'
         threshold = self.minimum_flux()
-        problem.prob.define(('v', biomass))
         obj = problem.get_flux_var(biomass)
-        problem.prob.add_linear_constraints(obj <= 2000)
         problem.prob.add_linear_constraints(threshold <= obj)
         problem.maximize(biomass)
         return biomass, problem.get_flux(biomass)
@@ -156,7 +167,7 @@ def unpack(container, data):
     the trancriptomic data.'''
 
     if isinstance(container, boolean.Variable):
-        print str(container)
+        print str(container), data[str(container)]
         return data[str(container)]
     else:
         if isinstance(container, boolean.Or):
@@ -173,17 +184,9 @@ def unpack(container, data):
             return min(x)
 
 
-def rxn_bounds(mm, rxn):
-    '''Takes a metabolic model, a reaction and an LP Problem.
-    Returns (low bound, high bound)'''
-
-    lower_bound = mm.limits._create_bounds(rxn).bounds[0]
-    upper_bound = mm.limits._create_bounds(rxn).bounds[1]
-        #   __getitem__ could be replaced by _create_bounds, or another function
-        #   could be implemented.
-    return lower_bound, upper_bound
-
 def exchange_bounds(mm, problem):
+    '''Returns the baseline lower and upper bounds on the exchange reactions in
+    the model.  Takes an instance of the metabolic model and the LP problem.'''
     A0 = {}
     B0 = {}
     w = {}
@@ -201,14 +204,48 @@ def exchange_bounds(mm, problem):
         vmink = []
         vmaxk = []
         for rxn in metabolic_rxns:
-            problem.maximize(rxn)
-            vmaxk.append(problem.get_flux(rxn))
-            w[rxn] = 1
-            problem.minimize_l1(w)
-            vmink.append(problem.get_flux(rxn))
-            w[rxn] = 0
+            vmaxk.append(problem.flux_bound(rxn, 1))
+            vmink.append(problem.flux_bound(rxn, -1))
         print exch, 'vmink -> vmaxk: ', vmink, vmaxk
         A0[exch] = min(vmink)
         B0[exch] = max(vmaxk)
     print 'A0: ', A0
     print 'B0: ', B0
+    return A0, B0
+
+
+def reaction_expression(gene_logic, data):
+    '''Returns a reaction 'expression' dictionary of the form:
+    {'con1 : {rxn1 : x'}'}, where x is the expression of reaction 1 under
+    condition 1.
+
+    gene-logic = dictionary connecting reactions to their gene logic
+    data = the trancriptomic data from open_file().'''
+
+    conditions = len(data)-1 #take one away to ignore the p-val column
+    rxn_exp = {}
+    x = []
+    for con in range(conditions):
+        key = str('con'+str(con+1))
+        rxn_exp[key] = {}
+
+        for rxn, logic in gene_logic.iteritems():
+            exp = boolean.Expression(logic)
+            Xjl = unpack(exp.base_tree(), data[con])
+            rxn_exp[key][rxn] = Xjl
+            x.append(Xjl)
+            print 'Xjl =', Xjl
+            print ''
+    return rxn_exp, x
+
+
+def gene_bounds(mm, rxn_exp, x):
+    maxx = max(x)
+    rxns = rxn_exp['con1']
+    for rxn, Xjl in rxns.iteritems():
+        print rxn, Xjl
+        factor = Xjl/maxx
+        a0 = mm.limits[rxn].lower
+        mm.limits[rxn].lower = a0*factor
+        b0 = mm.limits[rxn].upper
+        mm.limits[rxn].upper = b0*factor
