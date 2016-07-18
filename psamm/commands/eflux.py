@@ -59,13 +59,22 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
     def run(self):
         """Run MADE implementation."""
-        print 'yay'
+        print ''
+        print 'RUN STARTS HERE'
+        print ''
         data = open_file(self)
-        rxn_genelogic = self.reaction_logic()
+        rxn_genelogic = self.gene_logic()
         minimum = self.minimum_flux()
         problem, mm =  self.flux_setup()
         bounds = self.reaction_bounds(mm, problem)
         biomassflux = self.min_biomass(problem)
+        print ''
+        for rxn, logic in rxn_genelogic.iteritems():
+            exp = boolean.Expression(logic)
+            print rxn
+            Xlj = unpack(exp.base_tree(), data[0])
+            print 'Xlj = ', Xlj
+            print ''
 
         print ''
         print 'Transcriptomic Data: ', data
@@ -77,9 +86,11 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print 'Bounds:', bounds
         print ''
         print 'Biomass: ', biomassflux
+        print ''
+        exchange_bounds(mm, problem)
 
 
-    def reaction_logic(self):
+    def gene_logic(self):
         ''' Using the model file,returns a dictionary with reactions as keys and
         their associated gene logic (i.e. (gene 1 and gene 2) or gene 3) as
         values of type str.'''
@@ -95,7 +106,9 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         bounds = {}
         for rxn in mm.reactions:
             bounds[rxn] = rxn_bounds(mm, rxn)
-            problem.prob.define(('v', rxn))  #defines LP variables for all reactions
+            problem.prob.define(('v', rxn)) #defines LP variables for all reactions
+            fluxvar = problem.get_flux_var(rxn)
+            problem.prob.add_linear_constraints(fluxvar <= bounds[rxn][1], fluxvar >= bounds[rxn][0])
         return bounds
 
 
@@ -141,29 +154,61 @@ def unpack(container, data):
     '''Recursively unpacks gene logic and returns the 'expression' of the
     reaction taken as an argument.  Takes a reaction boolean expression and
     the trancriptomic data.'''
+
     if isinstance(container, boolean.Variable):
-        print 'variable', data[str(container)]
+        print str(container)
         return data[str(container)]
     else:
-        if isinstance(str(container), boolean.Or):
+        if isinstance(container, boolean.Or):
             x = []
             for i in container:
                 x.append(unpack(i, data))
             print 'Or', sum(x)
             return sum(x)
-        elif isinstance(str(container), boolean.And):
+        elif isinstance(container, boolean.And):
             x = []
             for i in container:
                 x.append(unpack(i, data))
             print 'And', min(x)
             return min(x)
 
+
 def rxn_bounds(mm, rxn):
     '''Takes a metabolic model, a reaction and an LP Problem.
-    Returns (low bound, high bound'''
+    Returns (low bound, high bound)'''
 
     lower_bound = mm.limits._create_bounds(rxn).bounds[0]
     upper_bound = mm.limits._create_bounds(rxn).bounds[1]
         #   __getitem__ could be replaced by _create_bounds, or another function
         #   could be implemented.
     return lower_bound, upper_bound
+
+def exchange_bounds(mm, problem):
+    A0 = {}
+    B0 = {}
+    w = {}
+    exchange_rxns = []
+    metabolic_rxns = []
+    for rxn in mm.reactions:
+        w[rxn] = 0
+        if mm.is_exchange(rxn):
+            exchange_rxns.append(rxn)
+        else:
+            metabolic_rxns.append(rxn)
+    print 'exchange reactions: ',exchange_rxns
+    print 'metabolic reactions: ',metabolic_rxns
+    for exch in exchange_rxns:
+        vmink = []
+        vmaxk = []
+        for rxn in metabolic_rxns:
+            problem.maximize(rxn)
+            vmaxk.append(problem.get_flux(rxn))
+            w[rxn] = 1
+            problem.minimize_l1(w)
+            vmink.append(problem.get_flux(rxn))
+            w[rxn] = 0
+        print exch, 'vmink -> vmaxk: ', vmink, vmaxk
+        A0[exch] = min(vmink)
+        B0[exch] = max(vmaxk)
+    print 'A0: ', A0
+    print 'B0: ', B0
