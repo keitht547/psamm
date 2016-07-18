@@ -16,7 +16,7 @@
 # Copyright 2016  Keith Dufault-Thompson <keitht547@my.uri.edu>
 
 from __future__ import unicode_literals
-
+import sys
 import argparse
 import time
 import logging
@@ -73,6 +73,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         biomass_fun = nat_model.get_biomass_reaction()
         var_gen = ('y{}'.format(i) for i in count(1))
         problem_mm = self.flux_setup()
+        start_time = time.time()
         mm = problem_mm[1]
         problem = problem_mm[0]
         thresh_v = self.minimum_flux()
@@ -92,13 +93,16 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
         biomass_function = nat_model.get_biomass_reaction()
         for reaction in nat_model.parse_reactions():
-            if self._args.fva is True:
-                print('{}\t{}\t{}\t{}\t{}'.format(reaction.id, final.flux_bound(reaction.id, -1),
-                final.flux_bound(reaction.id, -1), str(reaction.equation), reaction.genes))
-            else:
-                print('{}\t{}\t{}\t{}'.format(reaction.id, final.get_flux(reaction.id), str(reaction.equation), reaction.genes))
+            if reaction.id in nat_model.parse_model():
+                if self._args.fva is True:
+                    print('{}\t{}\t{}\t{}\t{}'.format(reaction.id, final.flux_bound(reaction.id, -1),
+                    final.flux_bound(reaction.id, -1), str(reaction.equation), reaction.genes))
+                else:
+                    print('{}\t{}\t{}\t{}'.format(reaction.id, final.get_flux(reaction.id), str(reaction.equation), reaction.genes))
 
         print('Objective Flux: {}'.format(final.get_flux(biomass_function)))
+        logger.info('Solving took {:.2f} seconds'.format(
+            time.time() - start_time))
 
 
     def parse_dict(self):
@@ -152,12 +156,17 @@ def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, probl
     for gene, var in gvdict.iteritems():
         if gene in gene_pval.keys():
             wp = gene_pval[gene]
+            if wp <= 2.2204460492e-16:
+                wp = 2.2204460492e-16
+            else:
+                wp = wp
             if gene_data[gene] == 1:
-                I = I + (-math.log10(gene_pval[gene]))*(var_ineqvar2[var[1]] - var_ineqvar1[var[0]])
+                I = I + (-math.log10(wp))*(var_ineqvar2[var[1]] - var_ineqvar1[var[0]])
             elif gene_data[gene] == -1:
-                D = D + (-math.log10(gene_pval[gene]))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
+                D = D + (-math.log10(wp))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
             elif gene_data[gene] == 0:
-                C = C + (-math.log10(gene_pval[gene]))*((var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
+                C = C + (-math.log10(wp))*((var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
+
             MILP_obj = I + D - C
 
     problem.prob.define(('v', 'object'))
@@ -168,7 +177,7 @@ def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, probl
     obj_flux = problem.get_flux('object')
 
     linear_constraints(problem, obj_var == obj_flux)
-    problem.maximize('rxn_1')
+    problem.maximize('Core_Biomass')
     return(problem)
 
 
@@ -302,14 +311,17 @@ def open_file(self):
         try:
             con1_dict[row[0]] = float(row[1])
             con2_dict[row[0]] = float(row[2])
-            pval_dict[row[0]] = float(row[3])
+            if float(row[3]) == float(0.0):
+                pval_dict[row[0]] = 1e-400
+            else:
+                pval_dict[row[0]] = float(row[3])
         except:
-            print 
+            print
 
     return con1_dict, con2_dict, pval_dict
 
 
-def IDC(dicts, significance=0.05):
+def IDC(dicts):
     '''Generates a dictionary with keys = genes and values = [-1, 0, +1]
     corresponding to significantly decreasing, constant, and inreasing expresson.
     P-values less than or equal to the significance are considered significant.'''
@@ -319,13 +331,10 @@ def IDC(dicts, significance=0.05):
     diff = {}
 
     for key in con1:
-        if pval[key] > significance:
+        if con2[key]-con1[key] == 0:
             diff[key] = 0
         else:
-            if con2[key]-con1[key] == 0:
-                diff[key] = 0
-            else:
-                diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
+            diff[key] = int((con2[key]-con1[key])/abs(con2[key]-con1[key]))
     return con1,con2,pval,diff
 
 
