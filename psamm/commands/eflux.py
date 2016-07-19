@@ -69,13 +69,17 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         rxn_genelogic = self.gene_logic()
         minimum = self.minimum_flux()
         problem, mm =  self.flux_setup()
-
+        ex_bounds = exchange_bounds(mm, problem)
         bounds = self.reaction_bounds(mm, problem)
         biomassflux = self.min_biomass(problem)
-        ex_bounds = exchange_bounds(mm, problem)
+
         rxn_exp, x = reaction_expression(rxn_genelogic, data)
         gene_bounds(mm, rxn_exp, x)
-
+        bounds2 = self.reaction_bounds(mm, problem)
+        biomass = self._model.get_biomass_reaction()
+        solver = self._get_solver()
+        problem2 = fluxanalysis.FluxBalanceProblem(mm, solver)
+        problem2.maximize(biomass)
 
         print ''
         print 'Transcriptomic Data: ', data
@@ -86,14 +90,21 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print ''
         print 'Bounds:', bounds
         print ''
-        print 'Biomass: ', biomassflux
+        #print 'Biomass: ', biomassflux
         print ''
         print 'A0, B0: ', ex_bounds
         print ''
         print 'Reaction Expression: ', rxn_exp
         print ''
-        print
-
+        print 'New Bounds: '
+        for rxn in mm.reactions:
+            print rxn, mm.limits[rxn].bounds
+        print ''
+        print 'FBA:'
+        for rxn in self._model.parse_reactions():
+            print '{}\t{}\t{}\t{}'.format(rxn.id, problem2.get_flux(rxn.id),
+            rxn.equation, rxn.genes)
+        print 'Bounds 2: ', bounds2
 
 
     def gene_logic(self):
@@ -112,13 +123,10 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         all the bounds.'''
         bounds = {}
         for rxn in mm.reactions:
-            upper_bound = mm.limits[rxn].upper
-            lower_bound = mm.limits[rxn].lower
-            problem.prob.define(('v', rxn)) #defines LP variables for all reactions
+            bound = mm.limits[rxn].bounds
+            problem.prob.define(('v', rxn))
             fluxvar = problem.get_flux_var(rxn)
-            problem.prob.add_linear_constraints(fluxvar <= upper_bound, fluxvar
-            >= lower_bound)
-            bounds[rxn] = upper_bound, lower_bound
+            bounds[rxn] = bound
         return bounds
 
 
@@ -153,13 +161,10 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         '''Applies biomass minimum of 90% (defined in the default in init_parser)
         to the LP problem. Maximizes the biomass.'''
         biomass = self._model.get_biomass_reaction()
-        print biomass , 'BIOMASS'
         threshold = self.minimum_flux()
         obj = problem.get_flux_var(biomass)
         problem.prob.add_linear_constraints(threshold <= obj)
-        problem.maximize(biomass)
-        return biomass, problem.get_flux(biomass)
-
+        return biomass, threshold
 
 def unpack(container, data):
     '''Recursively unpacks gene logic and returns the 'expression' of the
@@ -209,14 +214,12 @@ def exchange_bounds(mm, problem):
         print exch, 'vmink -> vmaxk: ', vmink, vmaxk
         A0[exch] = min(vmink)
         B0[exch] = max(vmaxk)
-    print 'A0: ', A0
-    print 'B0: ', B0
     return A0, B0
 
 
 def reaction_expression(gene_logic, data):
     '''Returns a reaction 'expression' dictionary of the form:
-    {'con1 : {rxn1 : x'}'}, where x is the expression of reaction 1 under
+    {'con1 : {rxn1 : Xjl'}'}, where Xjl is the expression of reaction 1 under
     condition 1.
 
     gene-logic = dictionary connecting reactions to their gene logic
@@ -240,6 +243,10 @@ def reaction_expression(gene_logic, data):
 
 
 def gene_bounds(mm, rxn_exp, x):
+    '''Alters the bounds on metabolic reactions by a factor equal to the reaction
+    expression, relative to the maximum expression accross all conditions.
+    Takes the metabolic model and the output of reaction_expression.  x is a
+    list of all expressions over all reactions and all conditions.'''
     maxx = max(x)
     rxns = rxn_exp['con1']
     for rxn, Xjl in rxns.iteritems():
