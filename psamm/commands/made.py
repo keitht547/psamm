@@ -95,8 +95,10 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         for reaction in nat_model.parse_reactions():
             if reaction.id in nat_model.parse_model():
                 if self._args.fva is True:
+                    flux = final.get_flux_var('Core_Biomass')
+                    final.prob.add_linear_constraints(flux >= 0.99*final.get_flux('Core_Biomass'))
                     print('{}\t{}\t{}\t{}\t{}'.format(reaction.id, final.flux_bound(reaction.id, -1),
-                    final.flux_bound(reaction.id, -1), str(reaction.equation), reaction.genes))
+                    final.flux_bound(reaction.id, 1), str(reaction.equation), reaction.genes))
                 else:
                     print('{}\t{}\t{}\t{}'.format(reaction.id, final.get_flux(reaction.id), str(reaction.equation), reaction.genes))
 
@@ -172,10 +174,9 @@ def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, probl
     problem.prob.define(('v', 'object'))
     obj_var = problem.get_flux_var('object')
     linear_constraints(problem, obj_var == MILP_obj)
-    linear_constraints(problem, obj_var <= 5000)
     problem.maximize('object')
     obj_flux = problem.get_flux('object')
-
+    print obj_flux
     linear_constraints(problem, obj_var == obj_flux)
     problem.maximize('Core_Biomass')
     return(problem)
