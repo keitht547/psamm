@@ -33,8 +33,7 @@ from ..util import MaybeRelative
 import csv
 import psamm.lpsolver
 from psamm.lpsolver import lp
-from made import open_file
-
+import random
 
 
 
@@ -56,6 +55,9 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
             type=MaybeRelative, default = MaybeRelative('90%'), nargs='?')
         parser.add_argument('--transc-file', help='Enter path to transcriptomic data file',
         metavar='FILE')
+        parser.add_argument(
+        '--fva', help='Enable FVA',
+        action='store_true')
         super(eFluxBalance, cls).init_parser(parser)
 
 
@@ -64,47 +66,71 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         print ''
         print 'RUN STARTS HERE'
         print ''
-
         data = open_file(self)
         rxn_genelogic = self.gene_logic()
         minimum = self.minimum_flux()
         problem, mm =  self.flux_setup()
-        ex_bounds = exchange_bounds(mm, problem)
+        #ex_bounds = exchange_bounds(mm, problem)
         bounds = self.reaction_bounds(mm, problem)
         biomassflux = self.min_biomass(problem)
 
         rxn_exp, x = reaction_expression(rxn_genelogic, data)
-        gene_bounds(mm, rxn_exp, x)
+        maxx = gene_bounds(mm, rxn_exp, x)
         bounds2 = self.reaction_bounds(mm, problem)
         biomass = self._model.get_biomass_reaction()
         solver = self._get_solver()
         problem2 = fluxanalysis.FluxBalanceProblem(mm, solver)
         problem2.maximize(biomass)
 
+        # print ''
+        # print 'Transcriptomic Data: ', data
+        # print ''
+        # print 'Reaction Gene Logic: ', rxn_genelogic
         print ''
-        print 'Transcriptomic Data: ', data
+        print 'Reaction Expression: '#, rxn_exp
+        for condition, info in rxn_exp.iteritems():
+            print ''
+            print condition
+            for reaction, expression in info.iteritems():
+                print reaction, expression
+
         print ''
-        print 'Reaction Gene Logic: ', rxn_genelogic
+        print 'Biomass Reaction, Threshold: ', biomassflux
+        #print 'A0, B0: ', ex_bounds
         print ''
-        print 'Biomass threshold 90%: ', minimum
-        print ''
-        print 'Bounds:', bounds
-        print ''
-        #print 'Biomass: ', biomassflux
-        print ''
-        print 'A0, B0: ', ex_bounds
-        print ''
-        print 'Reaction Expression: ', rxn_exp
+        print 'Bounds:'#, bounds
+        for rxn, bound in bounds.iteritems():
+            print rxn, bound
         print ''
         print 'New Bounds: '
-        for rxn in mm.reactions:
-            print rxn, mm.limits[rxn].bounds
+        for rxn, bound in bounds2.iteritems():
+            print rxn, bound
+        print ''
+        print 'Transcriptomic Data: '
+        print 'C1:'
+        for gene, exp in data[0].iteritems():
+            print gene, exp
+        print ''
+        print 'C2:'
+        for gene, exp in data[1].iteritems():
+            print gene, exp
         print ''
         print 'FBA:'
+        rxn_model = []
+        for rxn in self._model.parse_model():
+            rxn_model.append(rxn)
         for rxn in self._model.parse_reactions():
-            print '{}\t{}\t{}\t{}'.format(rxn.id, problem2.get_flux(rxn.id),
-            rxn.equation, rxn.genes)
-        print 'Bounds 2: ', bounds2
+            if rxn.id in rxn_model:
+                if self._args.fva is True:
+                        flux = problem2.get_flux_var('Core_Biomass')
+                        problem2.prob.add_linear_constraints(flux >= 0.99*problem2.get_flux('Core_Biomass'))
+                        print('{}\t{}\t{}\t{}\t{}'.format(rxn.id, problem2.flux_bound(rxn.id, -1),
+                        problem2.flux_bound(rxn.id, 1), str(rxn.equation), rxn.genes))
+                else:
+                    print '{}\t{}\t{}\t{}'.format(rxn.id, problem2.get_flux(rxn.id),
+                    rxn.equation, rxn.genes)
+        print ''
+        print 'Max, Mean, Standard Deviation: ', maxx
 
 
     def gene_logic(self):
@@ -112,8 +138,16 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         their associated gene logic (i.e. (gene 1 and gene 2) or gene 3) as
         values of type str.'''
         gene_dict = {}
+        model_reactions = []
+        for rxn in self._model.parse_model():
+            model_reactions.append(rxn)
+        print model_reactions
         for i in self._model.parse_reactions():
-            gene_dict[i.id] = i.genes
+            if i.id in model_reactions:
+                if i.genes == 'None' or i.genes == None:
+                    continue
+                else:
+                    gene_dict[i.id] = i.genes
         return gene_dict
 
 
@@ -170,21 +204,26 @@ def unpack(container, data):
     '''Recursively unpacks gene logic and returns the 'expression' of the
     reaction taken as an argument.  Takes a reaction boolean expression and
     the trancriptomic data.'''
-
     if isinstance(container, boolean.Variable):
-        print str(container), data[str(container)]
-        return data[str(container)]
+        value = data.get(str(container))
+        print str(container), value
+        if value is not None:
+            return data[str(container)]
+        else:
+            return
     else:
         if isinstance(container, boolean.Or):
             x = []
             for i in container:
                 x.append(unpack(i, data))
+            x = list(filter(lambda a: a != None, x))
             print 'Or', sum(x)
             return sum(x)
         elif isinstance(container, boolean.And):
             x = []
             for i in container:
                 x.append(unpack(i, data))
+            x = list(filter(lambda a: a != None, x))
             print 'And', min(x)
             return min(x)
 
@@ -231,28 +270,101 @@ def reaction_expression(gene_logic, data):
     for con in range(conditions):
         key = str('con'+str(con+1))
         rxn_exp[key] = {}
+        print ''
+        print key
 
         for rxn, logic in gene_logic.iteritems():
             exp = boolean.Expression(logic)
             Xjl = unpack(exp.base_tree(), data[con])
             rxn_exp[key][rxn] = Xjl
             x.append(Xjl)
+            print key
             print 'Xjl =', Xjl
             print ''
     return rxn_exp, x
 
 
-def gene_bounds(mm, rxn_exp, x):
+def gene_bounds(mm, rxn_exp, x, con='con1'):
     '''Alters the bounds on metabolic reactions by a factor equal to the reaction
     expression, relative to the maximum expression accross all conditions.
     Takes the metabolic model and the output of reaction_expression.  x is a
     list of all expressions over all reactions and all conditions.'''
     maxx = max(x)
-    rxns = rxn_exp['con1']
+    variance = 0
+    mean = 0
+    count = 0
+    for i in x:
+        if i != None:
+            mean += i
+            count += 1
+    mean = mean/count
+    for i in x:
+        if i != None:
+            variance += (mean - i)**2
+
+    variance = variance/count
+    stdev = math.sqrt(variance)
+    rxns = rxn_exp[con]
     for rxn, Xjl in rxns.iteritems():
         print rxn, Xjl
-        factor = Xjl/maxx
-        a0 = mm.limits[rxn].lower
-        mm.limits[rxn].lower = a0*factor
-        b0 = mm.limits[rxn].upper
-        mm.limits[rxn].upper = b0*factor
+        if Xjl == None:
+            continue
+        else:
+            factor = Xjl/maxx
+            a0 = mm.limits[rxn].lower
+            print 'A0', a0
+            mm.limits[rxn].lower = a0*factor
+            print 'lower bound: ', mm.limits[rxn].lower
+            b0 = mm.limits[rxn].upper
+            print 'B0', b0
+            print 'A0, B0, factor', a0, b0, factor
+            mm.limits[rxn].upper = b0*factor
+
+    return (maxx, mean, stdev)
+
+def logistic(x, mean):
+    y = 1.0 + math.exp(-.005*(x-mean))
+    y = 1.0/y + 0.0
+    return y
+
+def open_file(self):
+    '''Returns the contents of model file in a tuple of dictionaries.
+    File Form: tsv format, FOUR Columns: (1) Gene name, (2) Condition 1 Data,
+    (3) Condition 2 Data, (4) P-value of the transition 1->2. Transforms data
+    logistically centered at the mean.'''
+    path = self._args.transc_file
+    file1 = open(path)
+
+    con1_dict = {}
+    con2_dict = {}
+    pval_dict = {}
+
+    A = False
+    for row in csv.reader(file1, delimiter=str('\t')):
+        print row
+        if A == True:
+            con1_dict[row[0]] = float(row[1])
+            con2_dict[row[0]] = float(row[2])
+            pval_dict[row[0]] = float(row[3])
+
+        A = True
+
+    sum1 = 0
+    count = 0
+    for gene, value in con1_dict.iteritems():
+        sum1 += value
+        count += 1
+    mean1 = sum1/count
+    sum2 = 0
+    for gene, value in con2_dict.iteritems():
+        sum2 += value
+    mean2 = sum2/count
+    print 'means: ', mean1, mean2
+
+    con1_new = {}
+    con2_new = {}
+    for gene, value in con1_dict.iteritems():
+        con1_new[gene] = logistic(value, mean1)
+        con2_new[gene] = logistic(value, mean2)
+
+    return con1_new, con2_new, pval_dict
