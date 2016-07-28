@@ -301,9 +301,9 @@ def gene_bounds(mm, rxn_exp, x, con='con1'):
     for i in x:
         if i != None:
             variance += (mean - i)**2
-
     variance = variance/count
     stdev = math.sqrt(variance)
+
     rxns = rxn_exp[con]
     for rxn, Xjl in rxns.iteritems():
         print rxn, Xjl
@@ -322,7 +322,10 @@ def gene_bounds(mm, rxn_exp, x, con='con1'):
 
     return (maxx, mean, stdev)
 
-def logistic(x, mean):
+def logistic(x, mean=0.0):
+    '''A mathematical logistic function centered about the input mean (default
+    is zero).  The coefficient to x determines how rapidly the curve approaches
+    unity.'''
     y = 1.0 + math.exp(-.005*(x-mean))
     y = 1.0/y + 0.0
     return y
@@ -359,7 +362,6 @@ def open_file(self):
     for gene, value in con2_dict.iteritems():
         sum2 += value
     mean2 = sum2/count
-    print 'means: ', mean1, mean2
 
     con1_new = {}
     con2_new = {}
