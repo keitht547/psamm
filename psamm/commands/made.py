@@ -15,6 +15,8 @@
 #
 # Copyright 2016  Keith Dufault-Thompson <keitht547@my.uri.edu>
 
+'''Implementation of Metabolic Adjustment by Differential Expression (MADE)'''
+
 from __future__ import unicode_literals
 import sys
 import argparse
@@ -33,13 +35,23 @@ import random
 import psamm.lpsolver
 from psamm.lpsolver import lp
 
-
-
+# Module-level logging
 logger = logging.getLogger(__name__)
 
 
 class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
-    """Run MADE flux balance analysis on the model."""
+    """Run MADE flux balance analysis on the model.
+
+    Args:
+        gene_var1 = Dictionary, key:value = gene expression objects:their new variable id, first set
+        gene_var2 = Dictionary; key:value = gene expression objects:their new variable id, second set
+        var_ineqvar1 = xi; Dictionary, key:value = new variable ids:their defined inequality variable, first set
+        var_ineqvar2 = xi+1; Dictionary, key:value = new variable ids:their defined inequality variable, second set
+        gene_pval = Dictionary, key:value = gene ID:gene fold change probability (pvalue)
+        gene_diff = Dictionary, key:value = gene ID: binary up/down/constant regulation values
+        gvdict = Dictionary, key:value = gene ID:defined variable ids from both sets (each key has 2 values)
+        problem = Flux balance problem
+    """
 
     @classmethod
     def init_parser(cls, parser):
@@ -63,11 +75,11 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
     def run(self):
         """Run MADE implementation."""
         parser = self.parse_dict()
-        gene_var1 = {} #Dictionary; key:value = gene expression objects:their new variable id, first set
-        gene_var2 = {} #Dictionary; key:value = gene expression objects:their new variable id, second set
-        var_ineqvar1 = {} #Dictionary; key:value = new variable ids:their defined inequality variable, first set
-        var_ineqvar2 = {} #Dictionary; key:value = new variable ids:their defined inequality variable, second set
-        gvdict = {} #Dictionary; key:value = gene_id:defined variable ids from both sets (each key has 2 values)
+        gene_var1 = {}
+        gene_var2 = {}
+        var_ineqvar1 = {}
+        var_ineqvar2 = {}
+        gvdict = {}
 
         nat_model = self._model
         biomass_fun = nat_model.get_biomass_reaction()
@@ -77,7 +89,8 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         mm = problem_mm[1]
         problem = problem_mm[0]
         thresh_v = self.minimum_flux()
-        linear_constraints(problem, problem.get_flux_var(biomass_fun) >= thresh_v[0])
+        linear_constraints(problem, problem.get_flux_var(biomass_fun) >= thresh_v)
+
         for rxn_id, GPR in parser.iteritems():
             e = boolean.Expression(GPR)
             exp_gene_string(e.base_tree(), var_gen, problem, rxn_id, gene_var1, gene_var2, var_ineqvar1, var_ineqvar2, gvdict)
@@ -89,14 +102,14 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
         info_dict = rxn_info(mm, problem)
         add_final_constraints(info_dict, problem, var_ineqvar1, var_ineqvar2)
-        final = make_obj_fun(var_ineqvar1, var_ineqvar2, gene_data[2], gene_data[3], gvdict, problem)
+        final = make_obj_fun(var_ineqvar1, var_ineqvar2, gene_data[2], gene_data[3], gvdict, problem, biomass_fun)
 
         biomass_function = nat_model.get_biomass_reaction()
         for reaction in nat_model.parse_reactions():
             if reaction.id in nat_model.parse_model():
                 if self._args.fva is True:
-                    flux = final.get_flux_var('Core_Biomass')
-                    final.prob.add_linear_constraints(flux >= 0.99*final.get_flux('Core_Biomass'))
+                    flux = final.get_flux_var(biomass_function)
+                    linear_constraints(final, flux >= 0.99*final.get_flux(biomass_function))
                     print('{}\t{}\t{}\t{}\t{}'.format(reaction.id, final.flux_bound(reaction.id, -1),
                     final.flux_bound(reaction.id, 1), str(reaction.equation), reaction.genes))
                 else:
@@ -108,8 +121,8 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
 
     def parse_dict(self):
-        ''' Using the model file,returns a dictionary with reactions as keys and
-        their associated gene logic (i.e. (gene 1 and gene 2) or gene 3) as
+        ''' Using the reaction file called inside of the model file, it returns a dictionary with reaction IDs as keys and
+        their associated gene-protein reaction (GPR) logic (i.e. (gene 1 and gene 2) or gene 3) as
         values of type str.'''
         gene_dict = {}
         for i in self._model.parse_reactions():
@@ -131,8 +144,7 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
 
     def minimum_flux(self):
-        '''Returns a biomass flux threshold that is a fraction of the maximum flux.
-        Not in final working condition yet - notice te absence of a return.'''
+        '''Returns a biomass flux threshold that is a fraction of the maximum flux.'''
         thresh = self._args.flux_threshold
         solver = self._get_solver(integer=True)
         mm_model = self._mm
@@ -141,15 +153,23 @@ class MadeFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         p = fluxanalysis.FluxBalanceProblem(mm_model, solver)
         p.maximize(obj_func)
         obj_flux = p.get_flux(obj_func)
-        obj_var = p.get_flux_var(obj_func)
         thresh_val = thresh.value*obj_flux
-        return(thresh_val, 'obj_var')
+        return thresh_val
 
 
-def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, problem):
+def linear_constraints(LPproblem, linear_constraint):
+    '''For easily adding linear constraints to the linear programming problem.'''
+    LPproblem.prob.add_linear_constraints(linear_constraint)
+
+def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_diff, gvdict, problem, biomass_fun):
     '''Constructs the MADE objective funtion from dictionaries of LP variables.
-    var_ineqvar1 = xi, ; var_ineqvar2 = xi+1, var_ineqvar2; gene_pval = gene probability (pvalue),
-    gene_data = dictionary with increasing/decreasing expression values'''
+
+    Objective function consists of the summation of three functions dependent on the
+    up/down regulation of gene expression between conditions. The functions contain
+    a weighting function, and the difference between the binary representations of
+    condition 1 and condition 2.
+    '''
+
     MILP_obj = 0.0
     I = 0.0 # Increasing gene expression
     D = 0.0 # Decreasing gene expression
@@ -159,14 +179,14 @@ def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, probl
         if gene in gene_pval.keys():
             wp = gene_pval[gene]
             if wp <= 2.2204460492e-16:
-                wp = 2.2204460492e-16
+                wp = 2.2204460492e-16 #Limitation of math.log()
             else:
                 wp = wp
-            if gene_data[gene] == 1:
+            if gene_diff[gene] == 1:
                 I = I + (-math.log10(wp))*(var_ineqvar2[var[1]] - var_ineqvar1[var[0]])
-            elif gene_data[gene] == -1:
+            elif gene_diff[gene] == -1:
                 D = D + (-math.log10(wp))*(var_ineqvar1[var[0]] - var_ineqvar2[var[1]])
-            elif gene_data[gene] == 0:
+            elif gene_diff[gene] == 0:
                 C = C + (-math.log10(wp))*((var_ineqvar2[var[1]]-var_ineqvar1[var[0]]))
 
             MILP_obj = I + D - C
@@ -178,14 +198,20 @@ def make_obj_fun(var_ineqvar1, var_ineqvar2, gene_pval, gene_data, gvdict, probl
     obj_flux = problem.get_flux('object')
     print obj_flux
     linear_constraints(problem, obj_var == obj_flux)
-    problem.maximize('Core_Biomass')
+    problem.maximize(biomass_fun) # Must be changed based on ID of desired reaction
     return(problem)
 
 
 def exp_gene_string(exp_obj, var_gen, problem, new_var_id, gene_var1, gene_var2, var_ineqvar1, var_ineqvar2, gvdict):
-    '''Opens all gene-logic containers, defines content, outputs the linear ineqs
+    '''Opens all gene-logic containers, defines content, outputs the linear inequalities
     by calling bool_ineqs().  Sorts data into dictionaries that are used in other
-    functions.  Is recursive. No output.'''
+    functions.  Is recursive. No output.
+
+    Args:
+        exp_obj: All of the expression objects (genes, AND, OR)
+        var_gen: Counter used for relabeling the genes and arguments as variables
+        new_var_id: Variable ID, also includes original reaction ID for first layer
+    '''
 
     gene_var1[exp_obj] = new_var_id
     problem.prob.define(("i", new_var_id), types = lp.VariableType.Binary)
@@ -224,14 +250,21 @@ def exp_gene_string(exp_obj, var_gen, problem, new_var_id, gene_var1, gene_var2,
         if exp_obj_name is None:
             exp_obj_name = new_var_id
 
-        bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names1, gene_var1, exp_obj_name, problem)
+        bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names1, gene_var1, problem)
 
-        bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names2, gene_var2, exp_obj_name, problem)
+        bool_ineqs(exp_obj.cont_type(), exp_obj.contain(), new_var_names2, gene_var2, problem)
 
 
-def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
+def bool_ineqs(ctype, containing, names, dict_var, problem):
     '''Input homogenous boolean.Expression (all ANDs or all ORs).  Adds the
-    corresponding linear inequalities to the LP problem. No output.'''
+    corresponding linear inequalities to the LP problem. No output.
+
+    Args:
+        ctype = Identifies container type (AND/OR)
+        containing = Opens containers
+        names = Names of the variables to replace the logic
+        dict_var = dictionary containing already defined expression objects
+    '''
 
     N = len(containing) # Length of the children list
     if isinstance(ctype, boolean.And):
@@ -254,14 +287,14 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
         Y = 'Y'
 
     yvar = problem.get_ineq_var(Y)
-    RHSlist = []
+    ineq_list = []
     for name in names:
         xvar = problem.get_ineq_var(name)
-        RHSlist.append(xvar)
+        ineq_list.append(xvar)
 
     if label == 'or':
         or_group = None
-        for ineq_var in RHSlist:
+        for ineq_var in ineq_list:
             linear_constraints(problem, 0 <= yvar <= 1)
             linear_constraints(problem, 0 <= ineq_var <= 1)
             #Individual variable inequalities
@@ -277,7 +310,7 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
 
     if label == 'and':
         and_group = None
-        for ineq_var in RHSlist:
+        for ineq_var in ineq_list:
             linear_constraints(problem, 0 <= yvar <= 1)
             linear_constraints(problem, 0 <= ineq_var <= 1)
             #Individual variable inequalities
@@ -293,15 +326,10 @@ def bool_ineqs(ctype, containing, names, dict_var, obj_name, problem):
         linear_constraints(problem, and_cont)
 
 
-def linear_constraints(LPproblem, linear_constraint):
-    '''For easily adding linear constraints to the LP problem.'''
-    LPproblem.prob.add_linear_constraints(linear_constraint)
-
-
 def open_file(self):
     '''Returns the contents of model file in a tuple of dictionaries.
     File Form: tsv format, FOUR Columns: (1) Gene name, (2) Condition 1 Data,
-    (3) Condition 2 Data, (4) P-value of the transition 1->2.'''
+    (3) Condition 2 Data, (4) P-value of the fold change for transition 1->2.'''
     path = self._args.transc_file
     file1 = open(path)
     con1_dict = {}
@@ -323,9 +351,10 @@ def open_file(self):
 
 
 def IDC(dicts):
-    '''Generates a dictionary with keys = genes and values = [-1, 0, +1]
-    corresponding to significantly decreasing, constant, and inreasing expresson.
-    P-values less than or equal to the significance are considered significant.'''
+    '''Used for accessing the list of dictionaries created in open_file()
+    Creates a dictionary for the gene ID and a value = [-1, 0, +1] corresponding
+    to decreasing, constant, and inreasing expression between the conditions.'''
+
     con1 = dicts[0]
     con2 = dicts[1]
     pval = dicts[2]
@@ -366,7 +395,5 @@ def add_final_constraints(info_dict, problem, var_ineqvar1, var_ineqvar2):
         Y = var_ineqvar1[rxn]
         Z = var_ineqvar2[rxn+'.2']
 
-        # linear_constraints(problem, fluxvar + (1-Y)*vmax <= vmax)
-        # linear_constraints(problem, fluxvar + (1-Y)*vmin >= vmin)
         linear_constraints(problem, fluxvar + (1-Z)*vmax <= vmax)
         linear_constraints(problem, fluxvar + (1-Z)*vmin >= vmin)
