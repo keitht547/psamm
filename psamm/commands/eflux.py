@@ -1,5 +1,4 @@
 # This file is part of PSAMM.
-#
 # PSAMM is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -62,10 +61,7 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
 
 
     def run(self):
-        """Run MADE implementation."""
-        print ''
-        print 'RUN STARTS HERE'
-        print ''
+        """Run E-Flux implementation."""
         data = open_file(self)
         rxn_genelogic = self.gene_logic()
         minimum = self.minimum_flux()
@@ -75,47 +71,13 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         biomassflux = self.min_biomass(problem)
 
         rxn_exp, x = reaction_expression(rxn_genelogic, data)
-        maxx = gene_bounds(mm, rxn_exp, x)
+        mms = gene_bounds(mm, rxn_exp, x)
         bounds2 = self.reaction_bounds(mm, problem)
         biomass = self._model.get_biomass_reaction()
         solver = self._get_solver()
         problem2 = fluxanalysis.FluxBalanceProblem(mm, solver)
         problem2.maximize(biomass)
 
-        # print ''
-        # print 'Transcriptomic Data: ', data
-        # print ''
-        # print 'Reaction Gene Logic: ', rxn_genelogic
-        print ''
-        print 'Reaction Expression: '#, rxn_exp
-        for condition, info in rxn_exp.iteritems():
-            print ''
-            print condition
-            for reaction, expression in info.iteritems():
-                print reaction, expression
-
-        print ''
-        print 'Biomass Reaction, Threshold: ', biomassflux
-        #print 'A0, B0: ', ex_bounds
-        print ''
-        print 'Bounds:'#, bounds
-        for rxn, bound in bounds.iteritems():
-            print rxn, bound
-        print ''
-        print 'New Bounds: '
-        for rxn, bound in bounds2.iteritems():
-            print rxn, bound
-        print ''
-        print 'Transcriptomic Data: '
-        print 'C1:'
-        for gene, exp in data[0].iteritems():
-            print gene, exp
-        print ''
-        print 'C2:'
-        for gene, exp in data[1].iteritems():
-            print gene, exp
-        print ''
-        print 'FBA:'
         rxn_model = []
         for rxn in self._model.parse_model():
             rxn_model.append(rxn)
@@ -129,8 +91,8 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
                 else:
                     print '{}\t{}\t{}\t{}'.format(rxn.id, problem2.get_flux(rxn.id),
                     rxn.equation, rxn.genes)
-        print ''
-        print 'Max, Mean, Standard Deviation: ', maxx
+        #print ''
+        #print 'Max, Mean, Standard Deviation: ', mms
 
 
     def gene_logic(self):
@@ -141,7 +103,6 @@ class eFluxBalance(MetabolicMixin, SolverCommandMixin, Command):
         model_reactions = []
         for rxn in self._model.parse_model():
             model_reactions.append(rxn)
-        print model_reactions
         for i in self._model.parse_reactions():
             if i.id in model_reactions:
                 if i.genes == 'None' or i.genes == None:
@@ -206,7 +167,6 @@ def unpack(container, data):
     the trancriptomic data.'''
     if isinstance(container, boolean.Variable):
         value = data.get(str(container))
-        print str(container), value
         if value is not None:
             return data[str(container)]
         else:
@@ -217,43 +177,44 @@ def unpack(container, data):
             for i in container:
                 x.append(unpack(i, data))
             x = list(filter(lambda a: a != None, x))
-            print 'Or', sum(x)
             return sum(x)
         elif isinstance(container, boolean.And):
             x = []
             for i in container:
                 x.append(unpack(i, data))
             x = list(filter(lambda a: a != None, x))
-            print 'And', min(x)
             return min(x)
 
 
-def exchange_bounds(mm, problem):
-    '''Returns the baseline lower and upper bounds on the exchange reactions in
-    the model.  Takes an instance of the metabolic model and the LP problem.'''
-    A0 = {}
-    B0 = {}
-    w = {}
-    exchange_rxns = []
-    metabolic_rxns = []
-    for rxn in mm.reactions:
-        w[rxn] = 0
-        if mm.is_exchange(rxn):
-            exchange_rxns.append(rxn)
-        else:
-            metabolic_rxns.append(rxn)
-    print 'exchange reactions: ',exchange_rxns
-    print 'metabolic reactions: ',metabolic_rxns
-    for exch in exchange_rxns:
-        vmink = []
-        vmaxk = []
-        for rxn in metabolic_rxns:
-            vmaxk.append(problem.flux_bound(rxn, 1))
-            vmink.append(problem.flux_bound(rxn, -1))
-        print exch, 'vmink -> vmaxk: ', vmink, vmaxk
-        A0[exch] = min(vmink)
-        B0[exch] = max(vmaxk)
-    return A0, B0
+# def exchange_bounds(mm, problem):
+#     '''Returns the baseline lower and upper bounds on the exchange reactions in
+#     the model.  Takes an instance of the metabolic model and the LP problem.
+#     Not part of the method. Potentially useful for determining bounds on exhange
+#     reactions.'''
+
+#     A0 = {}
+#     B0 = {}
+#     w = {}
+#     exchange_rxns = []
+#     metabolic_rxns = []
+#     for rxn in mm.reactions:
+#         w[rxn] = 0
+#         if mm.is_exchange(rxn):
+#             exchange_rxns.append(rxn)
+#         else:
+#             metabolic_rxns.append(rxn)
+#     print 'exchange reactions: ',exchange_rxns
+#     print 'metabolic reactions: ',metabolic_rxns
+#     for exch in exchange_rxns:
+#         vmink = []
+#         vmaxk = []
+#         for rxn in metabolic_rxns:
+#             vmaxk.append(problem.flux_bound(rxn, 1))
+#             vmink.append(problem.flux_bound(rxn, -1))
+#         print exch, 'vmink -> vmaxk: ', vmink, vmaxk
+#         A0[exch] = min(vmink)
+#         B0[exch] = max(vmaxk)
+#     return A0, B0
 
 
 def reaction_expression(gene_logic, data):
@@ -270,25 +231,22 @@ def reaction_expression(gene_logic, data):
     for con in range(conditions):
         key = str('con'+str(con+1))
         rxn_exp[key] = {}
-        print ''
-        print key
 
         for rxn, logic in gene_logic.iteritems():
             exp = boolean.Expression(logic)
             Xjl = unpack(exp.base_tree(), data[con])
             rxn_exp[key][rxn] = Xjl
             x.append(Xjl)
-            print key
-            print 'Xjl =', Xjl
-            print ''
     return rxn_exp, x
 
 
-def gene_bounds(mm, rxn_exp, x, con='con1'):
+def gene_bounds(mm, rxn_exp, x, con='con2'):
     '''Alters the bounds on metabolic reactions by a factor equal to the reaction
     expression, relative to the maximum expression accross all conditions.
     Takes the metabolic model and the output of reaction_expression.  x is a
-    list of all expressions over all reactions and all conditions.'''
+    list of all expressions over all reactions and all conditions.
+    Defaults to condition 2 to be comparable with MADE.'''
+
     maxx = max(x)
     variance = 0
     mean = 0
@@ -306,20 +264,14 @@ def gene_bounds(mm, rxn_exp, x, con='con1'):
 
     rxns = rxn_exp[con]
     for rxn, Xjl in rxns.iteritems():
-        print rxn, Xjl
         if Xjl == None:
             continue
         else:
             factor = Xjl/maxx
             a0 = mm.limits[rxn].lower
-            print 'A0', a0
             mm.limits[rxn].lower = a0*factor
-            print 'lower bound: ', mm.limits[rxn].lower
             b0 = mm.limits[rxn].upper
-            print 'B0', b0
-            print 'A0, B0, factor', a0, b0, factor
             mm.limits[rxn].upper = b0*factor
-
     return (maxx, mean, stdev)
 
 def logistic(x, mean=0.0):
@@ -344,7 +296,6 @@ def open_file(self):
 
     A = False
     for row in csv.reader(file1, delimiter=str('\t')):
-        print row
         if A == True:
             con1_dict[row[0]] = float(row[1])
             con2_dict[row[0]] = float(row[2])
