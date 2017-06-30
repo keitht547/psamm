@@ -154,10 +154,24 @@ class PrimaryPairsCommand(SolverCommandMixin, Command):
 
         if not self._args.report_all_transfers:
             result = self._combine_transfers(result)
+        cpd_id_dict = {}
 
-        for reaction_id, c1, c2, form in result:
+        for cpd in self._model.compounds:
+            cpd_id_dict[cpd.id] = cpd.name
+
+        rxn_path_dict = {}
+
+        for rxn in self._model.reactions:
+            rxn_path_dict[rxn.id] = rxn.properties.get('subsystem')
+
+        for reaction_id, c1a, c2a, form in result:
+            a = str(c1a)
+            b = str(c2a)
+            c1 = a[:-3]
+            c2 = b[:-3]
             if len(elements) == 0 or any(e in form for e in elements):
-                print('{}\t{}\t{}\t{}'.format(reaction_id, c1, c2, form))
+                print('{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(reaction_id, cpd_id_dict.get(c1), cpd_id_dict.get(c2),
+                                                      c1a, c2a, form, rxn_path_dict.get(reaction_id)))
 
     def _combine_transfers(self, result):
         """Combine multiple pair transfers into one."""
