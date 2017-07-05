@@ -23,7 +23,7 @@ from ..command import Command, SolverCommandMixin, FilePrefixAppendAction
 from ..formula import Formula, Atom, Radical, ParseError
 from .. import findprimarypairs
 from .. import mapmaker
-
+from .. reaction import Direction
 from six import text_type, iteritems
 
 logger = logging.getLogger(__name__)
@@ -164,13 +164,25 @@ class PrimaryPairsCommand(SolverCommandMixin, Command):
         for rxn in self._model.reactions:
             rxn_path_dict[rxn.id] = rxn.properties.get('subsystem')
 
+        rxn_dir_dict = {}
+        for rxn in self._model.reactions:
+            rxn_dir_dict[rxn.id] = rxn.equation.direction
+
+
         for reaction_id, c1a, c2a, form in result:
+            print(rxn_dir_dict.get(reaction_id))
             a = str(c1a)
             b = str(c2a)
             c1 = a[:-3]
             c2 = b[:-3]
             if len(elements) == 0 or any(e in form for e in elements):
-                print('{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(reaction_id, cpd_id_dict.get(c1), cpd_id_dict.get(c2),
+                if rxn_dir_dict.get(reaction_id) == Direction.Both:
+                    print('{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(reaction_id, cpd_id_dict.get(c1), cpd_id_dict.get(c2),
+                                                      c1a, c2a, form, rxn_path_dict.get(reaction_id)))
+                    print('{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(reaction_id, cpd_id_dict.get(c2), cpd_id_dict.get(c1),
+                                                      c2a, c1a, form, rxn_path_dict.get(reaction_id)))
+                else:
+                    print('{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(reaction_id, cpd_id_dict.get(c1), cpd_id_dict.get(c2),
                                                       c1a, c2a, form, rxn_path_dict.get(reaction_id)))
 
     def _combine_transfers(self, result):
